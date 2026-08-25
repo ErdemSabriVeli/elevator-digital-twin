@@ -1,0 +1,33 @@
+# ---------------------------------------------------------------------------
+# Godot 4
+# ---------------------------------------------------------------------------
+# Icgoru / onbellek klasoru — Godot projeyi acinca yeniden uretir.
+godot/.godot/
+
+# Disa aktarim ciktilari
+export/
+export_presets.cfg
+*.pck
+*.zip
+
+# NOT: *.uid dosyalari SILINMEZ. Godot 4.4+ script kimliklerini bunlarda tutar;
+# depoya dahil edilmezlerse projeyi klonlayan kiside bagimliliklar kopar.
+
+# ---------------------------------------------------------------------------
+# CODESYS
+# ---------------------------------------------------------------------------
+# Bu depoda ST kaynagi duz metin olarak tutulur (codesys/*.st).
+# CODESYS projesini kendiniz olusturursaniz ciktilari disarida birakin:
+*.project~
+*.project.~u
+backup/
+
+# ---------------------------------------------------------------------------
+# Isletim sistemi / editor
+# ---------------------------------------------------------------------------
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+*.swp

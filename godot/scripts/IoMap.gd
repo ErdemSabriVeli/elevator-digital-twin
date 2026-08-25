@@ -1,0 +1,152 @@
+class_name LiftIo
+extends RefCounted
+
+## Modbus register haritasi — codesys/GVL_IO.st ile birebir ayni.
+##
+## IN  = Godot -> PLC   (Holding Registers, master write, PLC %IW)
+## OUT = PLC -> Godot   (Input Registers,   master read,  PLC %QW)
+
+const REG_COUNT := 16
+
+# =============================================================================
+# Godot -> PLC   (Holding Registers)
+# =============================================================================
+const IN_HALL_UP      := 0     # bit n = n. kat YUKARI cagri butonu
+const IN_HALL_DOWN    := 1
+const IN_CAR_CALL     := 2
+const IN_CMD          := 3
+const IN_FLOOR_ZONE   := 4
+const IN_LIMITS       := 5
+const IN_POS_MM       := 6
+const IN_SPEED_MMS    := 7
+const IN_DOOR_PMIL    := 8
+const IN_LOAD_KG      := 9
+const IN_HEARTBEAT    := 10
+
+# IN_CMD bitleri
+const CMD_DOOR_OPEN   := 0
+const CMD_DOOR_CLOSE  := 1
+const CMD_ALARM       := 2
+const CMD_ESTOP       := 3
+const CMD_OVERLOAD    := 4
+const CMD_FIRE        := 5
+const CMD_INSPECTION  := 6
+const CMD_RESET       := 7
+const CMD_OBSTRUCTION := 8
+const CMD_DRIVE_READY := 9
+const CMD_DRIVE_FAULT := 10
+const CMD_INSP_UP     := 11
+const CMD_INSP_DOWN   := 12
+
+# IN_LIMITS bitleri
+const LIM_TOP         := 0
+const LIM_BOTTOM      := 1
+const LIM_DOOR_OPEN   := 2
+const LIM_DOOR_CLOSE  := 3
+const LIM_DOOR_LOCK   := 4
+const LIM_BRAKE_FB    := 5
+const LIM_SAFETY      := 6
+const LIM_GOVERNOR    := 7
+
+# =============================================================================
+# PLC -> Godot   (Input Registers)
+# =============================================================================
+const OUT_DRIVE_CMD   := 0
+const OUT_DOOR_CMD    := 1
+const OUT_LAMP_UP     := 2
+const OUT_LAMP_DOWN   := 3
+const OUT_LAMP_CAR    := 4
+const OUT_STATUS      := 5
+const OUT_CUR_FLOOR   := 6
+const OUT_TGT_FLOOR   := 7
+const OUT_DIRECTION   := 8
+const OUT_SPEED_SP    := 9
+const OUT_STATE       := 10
+const OUT_FAULT       := 11
+const OUT_HEARTBEAT   := 12
+const OUT_DOOR_TIMER  := 13
+
+# OUT_DRIVE_CMD bitleri
+const DRV_ENABLE      := 0
+const DRV_UP          := 1
+const DRV_DOWN        := 2
+const DRV_BRAKE       := 3
+const DRV_LEVELING    := 4
+
+# OUT_DOOR_CMD bitleri
+const DOOR_OPEN_CMD   := 0
+const DOOR_CLOSE_CMD  := 1
+const DOOR_NUDGE_CMD  := 2
+
+# OUT_STATUS bitleri
+const ST_MOVING       := 0
+const ST_DOOR_OPEN    := 1
+const ST_DOOR_CLOSED  := 2
+const ST_OVERLOAD     := 3
+const ST_FAULT        := 4
+const ST_FIRE         := 5
+const ST_INSPECTION   := 6
+const ST_OUT_OF_SVC   := 7
+const ST_GONG         := 8
+const ST_ARROW_UP     := 9
+const ST_ARROW_DOWN   := 10
+const ST_CABIN_LIGHT  := 11
+const ST_ALARM        := 12
+
+# =============================================================================
+# Enum'lar  (DUT_Types.st)
+# =============================================================================
+const DIR_NONE := 0
+const DIR_UP   := 1
+const DIR_DOWN := 2
+
+enum State {
+	INIT = 0, HOMING = 1, IDLE = 2, DOOR_OPENING = 3, DOOR_OPEN = 4,
+	DOOR_CLOSING = 5, START = 6, TRAVEL = 7, DECEL = 8, LEVEL = 9,
+	ARRIVED = 10, FAULT = 11, FIRE = 12, INSPECTION = 13, PARK = 14
+}
+
+enum DoorState { CLOSED = 0, OPENING = 1, OPEN = 2, CLOSING = 3, REOPEN = 4, FAULT = 5 }
+
+enum Fault {
+	NONE = 0, SAFETY_CHAIN = 1, DOOR_TIMEOUT = 2, TRAVEL_TIMEOUT = 3,
+	DRIVE = 4, LIMIT = 5, ENCODER = 6, LOCK_LOST = 7, ESTOP = 8,
+	BRAKE = 9, OVERSPEED = 10
+}
+
+const STATE_TEXT := {
+	0: "INIT", 1: "HOMING", 2: "BOSTA", 3: "KAPI ACILIYOR", 4: "KAPI ACIK",
+	5: "KAPI KAPANIYOR", 6: "KALKIS", 7: "SEYIR", 8: "YAVASLAMA",
+	9: "SEVIYELEME", 10: "VARDI", 11: "ARIZA", 12: "YANGIN",
+	13: "REVIZYON", 14: "PARK"
+}
+
+const FAULT_TEXT := {
+	0: "-", 1: "Guvenlik zinciri acik", 2: "Kapi zaman asimi",
+	3: "Hareket zaman asimi", 4: "Surucu arizasi", 5: "Limit switch",
+	6: "Encoder / kat sensoru uyusmazligi", 7: "Kapi kilidi kayboldu",
+	8: "Acil stop", 9: "Fren geri beslemesi uyusmuyor",
+	10: "ASIRI HIZ - regulator devrede"
+}
+
+const DIR_TEXT := { 0: "-", 1: "YUKARI", 2: "ASAGI" }
+
+# =============================================================================
+# Bit yardimcilari  (FUN_Bits.st)
+# =============================================================================
+static func get_bit(val: int, bit: int) -> bool:
+	if bit < 0 or bit > 15:
+		return false
+	return (val & (1 << bit)) != 0
+
+static func set_bit(val: int, bit: int, on: bool) -> int:
+	if bit < 0 or bit > 15:
+		return val
+	if on:
+		return val | (1 << bit)
+	return val & ~(1 << bit)
+
+static func floor_name(f: int) -> String:
+	if f == 0:
+		return "Z"
+	return str(f)

@@ -1,0 +1,47 @@
+name: testler
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Godot headless test paketleri
+    runs-on: ubuntu-latest
+    env:
+      GODOT_VERSION: "4.4.1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Godot'u indir
+        run: |
+          BASE="https://github.com/godotengine/godot/releases/download"
+          FILE="Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          curl -sSfL -o godot.zip "${BASE}/${GODOT_VERSION}-stable/${FILE}.zip"
+          unzip -q godot.zip
+          mv "${FILE}" godot-bin
+          chmod +x godot-bin
+          ./godot-bin --version
+
+      - name: Projeyi ice aktar
+        # Ilk acilista Godot .godot/ onbellegini ve global sinif kaydini uretir.
+        # Bu adim olmadan class_name'ler cozumlenmez.
+        run: ./godot-bin --headless --path godot --import
+
+      - name: ST statik denetimi
+        run: ./godot-bin --headless --path godot --script res://tests/st_lint_test.gd
+
+      - name: ST - GDScript eslesmesi
+        run: ./godot-bin --headless --path godot --script res://tests/parity_test.gd
+
+      - name: Mekanik yerlesim
+        run: ./godot-bin --headless --path godot --script res://tests/geometry_test.gd
+
+      - name: Kontrol mantigi senaryolari
+        run: ./godot-bin --headless --path godot --script res://tests/sim_test.gd
+
+      - name: Modbus TCP protokolu
+        run: ./godot-bin --headless --path godot --script res://tests/modbus_test.gd
