@@ -1,8 +1,8 @@
 # Asansör Dijital İkiz — CODESYS + Godot
 
-[![testler](https://github.com/KULLANICI/DEPO/actions/workflows/tests.yml/badge.svg)](https://github.com/KULLANICI/DEPO/actions/workflows/tests.yml)
+[![testler](https://github.com/ErdemSabriVeli/elevator-digital-twin/actions/workflows/tests.yml/badge.svg)](https://github.com/ErdemSabriVeli/elevator-digital-twin/actions/workflows/tests.yml)
 [![lisans: MIT](https://img.shields.io/badge/lisans-MIT-blue.svg)](LICENSE)
-[![Godot 4.3+](https://img.shields.io/badge/Godot-4.3%2B-478cbf.svg)](https://godotengine.org)
+[![Godot 4.4+](https://img.shields.io/badge/Godot-4.4%2B-478cbf.svg)](https://godotengine.org)
 [![CODESYS 3.5](https://img.shields.io/badge/CODESYS-3.5%20SP17%2B-e2001a.svg)](https://www.codesys.com)
 
 6 katlı bir asansörün dijital ikizi. **Kontrol mantığı CODESYS'te Structured Text ile**,
@@ -45,7 +45,8 @@ gerçek kumanda verisidir.
 
 ## Hızlı başlangıç (CODESYS olmadan)
 
-Godot 4.3+ gerekir, başka bağımlılık yoktur.
+Godot 4.4+ gerekir, başka bağımlılık yoktur. (Proje 4.4.1 üzerinde geliştirildi
+ve test edildi; CI de bu sürümü kullanır.)
 
 **Projeyi açmak:** Godot açılış ekranında **Import** → bu depodaki
 `godot/project.godot` dosyasını seç → **Import & Edit**. Ya da doğrudan:
