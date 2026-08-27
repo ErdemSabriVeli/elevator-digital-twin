@@ -94,7 +94,7 @@ func _initialize() -> void:
 
 	client.close()
 	print("\n=== RESULT: %s ===" % ("ALL TESTS PASSED" if failures == 0
-			else "%d TESTS FAILED" % failures))
+			else "%d FAILED" % failures))
 	quit(1 if failures > 0 else 0)
 
 

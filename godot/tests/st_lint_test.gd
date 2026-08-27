@@ -39,7 +39,7 @@ func _initialize() -> void:
 	check_fb_parameters()
 
 	print("\n=== RESULT: %s ===" % ("ST SOURCE IS CONSISTENT" if failures == 0
-			else "%d PROBLEMS" % failures))
+			else "%d FAILED" % failures))
 	quit(1 if failures > 0 else 0)
 
 

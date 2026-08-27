@@ -37,7 +37,7 @@ func _initialize() -> void:
 	_test_governor_clearance()
 
 	print("\n=== RESULT: %s ===" % ("ALL CHECKS PASSED" if failures == 0
-			else "%d CHECKS FAILED" % failures))
+			else "%d FAILED" % failures))
 	quit(1 if failures > 0 else 0)
 
 

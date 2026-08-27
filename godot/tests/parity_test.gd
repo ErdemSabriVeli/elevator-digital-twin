@@ -34,7 +34,7 @@ func _initialize() -> void:
 	test_bit_map()
 
 	print("\n=== RESULT: %s ===" % ("TWIN MATCHES THE ST" if failures == 0
-			else "%d MISMATCHES" % failures))
+			else "%d FAILED" % failures))
 	quit(1 if failures > 0 else 0)
 
 

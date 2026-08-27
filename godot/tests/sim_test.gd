@@ -34,7 +34,7 @@ func _initialize() -> void:
 	test_ride_quality()
 
 	print("\n=== RESULT: %s ===" % ("ALL TESTS PASSED" if failures == 0
-			else "%d TESTS FAILED" % failures))
+			else "%d FAILED" % failures))
 	quit(1 if failures > 0 else 0)
 
 
@@ -371,7 +371,8 @@ func test_ride_quality() -> void:
 	check("reached floor 5", cur_floor() == 5, "(floor=%d)" % cur_floor())
 	# the limit is relaxed at creep speed, so leave some headroom
 	check("jerk limit not exceeded", max_jerk <= LiftCfg.JERK_MMS3 * 8.5,
-			"(measured %.0f mm/s3, limit %.0f)" % [max_jerk, LiftCfg.JERK_MMS3])
+			"(measured %.0f mm/s3, target %.0f, tolerated %.0f)"
+					% [max_jerk, LiftCfg.JERK_MMS3, LiftCfg.JERK_MMS3 * 8.5])
 	check("acceleration limit not exceeded", max_acc <= LiftCfg.DECEL_MMS2 * 1.05,
 			"(measured %.0f mm/s2, limit %.0f)" % [max_acc, LiftCfg.DECEL_MMS2])
 	check("levelling held",

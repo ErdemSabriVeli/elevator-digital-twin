@@ -74,7 +74,7 @@ the 3D buttons in a landing or inside the car, or use the panel on the left.
 
 ## Connecting CODESYS
 
-`docs/codesys-setup.md` walks through it step by step. In short:
+[docs/codesys-setup.md](docs/codesys-setup.md) walks through it step by step. In short:
 
 1. New CODESYS project → create the POUs from the `codesys/*.st` files.
 2. Add **Ethernet → Modbus TCP Slave Device** to the device (port 502).
@@ -98,7 +98,7 @@ godot --path godot -- --plc modbus --host 192.168.1.10 --port 502
 | `codesys/` | Structured Text sources (the authoritative control logic) |
 | `godot/scripts/` | 3D plant model, physics, Modbus client, ST twin |
 | `godot/tests/` | ST lint, parity, geometry, scenario and protocol tests |
-| `docs/` | I/O map, CODESYS setup, demo scenarios |
+| `docs/` | [I/O map](docs/io-map.md), [CODESYS setup](docs/codesys-setup.md), [demo scenarios](docs/demo-scenarios.md) |
 
 ### CODESYS POUs
 
