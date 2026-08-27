@@ -1,12 +1,12 @@
 class_name PlcLink
 extends RefCounted
 
-## Kontrol katmani secici:
-##   Mode.SOFT    -> SoftPlc (ST kodunun GDScript ikizi, Godot icinde calisir)
-##   Mode.MODBUS  -> gercek CODESYS PLC ile Modbus TCP uzerinden
+## Control layer selector:
+##   Mode.SOFT    -> SoftPlc (the GDScript twin of the ST code, runs in Godot)
+##   Mode.MODBUS  -> a real CODESYS PLC over Modbus TCP
 ##
-## Iki mod da AYNI register arayuzunu kullanir; sahne tarafi hangisinin
-## calistigini bilmez. Calisirken F1 ile mod degistirilebilir.
+## Both modes use the SAME register interface; the scene side does not know
+## which one is running. F1 switches between them at run time.
 
 signal mode_changed(mode: int)
 
@@ -20,7 +20,7 @@ var host := "127.0.0.1"
 var port := 502
 var unit_id := 1
 
-## Modbus kopukken SoftPlc devreye girsin mi? (sunum icin pratik)
+## Should SoftPlc take over when Modbus drops? (handy for demos)
 var fallback_to_soft := true
 var using_fallback := false
 
@@ -30,7 +30,7 @@ var heartbeat := 0
 
 var _hb_acc := 0.0
 var _scan_acc := 0.0
-var scan_period := 0.02          # 20 ms hedef PLC tarama araligi (MODBUS modu)
+var scan_period := 0.02          # target PLC scan interval (MODBUS mode)
 var last_exchange_ms := 0
 
 
@@ -57,16 +57,16 @@ func online() -> bool:
 
 func status_text() -> String:
 	if mode == Mode.SOFT:
-		return "SoftPLC (ST ikizi)"
+		return "SoftPLC (ST twin)"
 	if mb.online:
 		return "CODESYS %s:%d  rtt %d ms" % [host, port, mb.rtt_ms]
 	if using_fallback:
-		return "CODESYS kopuk -> SoftPLC yedegi"
-	return "CODESYS %s:%d baglaniyor..." % [host, port]
+		return "CODESYS offline -> SoftPLC fallback"
+	return "CODESYS %s:%d connecting..." % [host, port]
 
 
 # =============================================================================
-## Bir cevrim: girisleri yolla, cikislari al.
+## One exchange: send the inputs, read back the outputs.
 func exchange(regs_in: PackedInt32Array, dt: float) -> PackedInt32Array:
 	in_regs = regs_in
 
@@ -101,7 +101,7 @@ func exchange(regs_in: PackedInt32Array, dt: float) -> PackedInt32Array:
 				out_regs[i] = v[i]
 			last_exchange_ms = Time.get_ticks_msec()
 
-	# --- yedek: baglanti yoksa SoftPlc surdursun ---------------------------
+	# --- fallback: let SoftPlc carry on when the link is down ---------------------------
 	if not mb.online and fallback_to_soft:
 		using_fallback = true
 		out_regs = soft.scan(regs_in, dt)

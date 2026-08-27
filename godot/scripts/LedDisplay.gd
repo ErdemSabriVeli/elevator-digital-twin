@@ -1,22 +1,22 @@
 class_name LedDisplay
 extends MeshInstance3D
 
-## Gercek asansor gostergesi: kirmizi nokta-matris (dot matrix) LED ekran.
+## A real elevator indicator: red dot-matrix LED display.
 ##
-## Karakterler 5x7 nokta matrisinden olusur; sol tarafta yon oku, sagda kat
-## karakteri gosterilir. Yuzey dokusu calisma aninda uretilir, yalnizca icerik
-## degistiginde yeniden cizilir.
+## Characters are drawn on a 5x7 dot matrix; the direction arrow sits on the
+## left and the floor character on the right. The surface texture is generated
+## at run time and redrawn only when the content changes.
 
-const CELL := 8                       # bir LED hucresinin piksel boyu
-const DOT_R := 3.1                    # LED yaricapi (piksel)
-const COLS := 11                      # 5 (ok) + 1 bosluk + 5 (karakter)
+const CELL := 8                       # pixel size of one LED cell
+const DOT_R := 3.1                    # LED radius (pixels)
+const COLS := 11                      # 5 (arrow) + 1 gap + 5 (character)
 const ROWS := 7
 
 const C_ON    := Color(1.00, 0.09, 0.03)
 const C_DIM   := Color(0.085, 0.012, 0.008)
 const C_BG    := Color(0.020, 0.018, 0.020)
 
-# 5x7 nokta matris font
+# 5x7 dot-matrix font
 const FONT := {
 	"0": ["01110", "10001", "10011", "10101", "11001", "10001", "01110"],
 	"1": ["00100", "01100", "00100", "00100", "00100", "00100", "01110"],
@@ -48,7 +48,7 @@ var _mat: StandardMaterial3D
 var _last := ""
 
 
-## width_m: ekranin dunya genisligi [m]. Yukseklik orana gore hesaplanir.
+## width_m: display width in world units [m]. Height follows the aspect ratio.
 static func create(parent: Node3D, pos: Vector3, width_m: float,
 		rot_deg := Vector3.ZERO) -> LedDisplay:
 	var d := LedDisplay.new()
@@ -63,8 +63,8 @@ static func create(parent: Node3D, pos: Vector3, width_m: float,
 	d._img.generate_mipmaps()
 	d._tex = ImageTexture.create_from_image(d._img)
 
-	# LED ekran kendi isigini yayar: gölgesiz (unshaded) + doku dogrudan cikar.
-	# Ayrica emission ile hafif parlama (glow) verilir.
+	# An LED display emits its own light: unshaded, so the texture is output
+	# directly. Emission adds a slight glow on top.
 	d._mat = StandardMaterial3D.new()
 	d._mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	d._mat.albedo_color = Color(1, 1, 1)
@@ -83,7 +83,7 @@ static func create(parent: Node3D, pos: Vector3, width_m: float,
 	return d
 
 
-## text: 1 karakter (kat), arrow: 0 yok / 1 yukari / 2 asagi
+## text: one character (the floor), arrow: 0 none / 1 up / 2 down
 func set_text(text: String, arrow: int) -> void:
 	var key := text + "|" + str(arrow)
 	if key == _last:
@@ -132,7 +132,7 @@ func _draw_dot(col: int, row: int, on: bool) -> void:
 			if d2 <= r2:
 				_img.set_pixel(px, py, c)
 			elif d2 <= r2 * 1.45:
-				# yumusak kenar
+				# soft edge
 				_img.set_pixel(px, py, c.lerp(C_BG, 0.55))
 
 

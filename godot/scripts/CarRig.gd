@@ -1,15 +1,15 @@
 class_name CarRig
 extends Node3D
 
-## Modern asansör kabini (gerçek ölçülere göre):
-##   - firçalanmis paslanmaz (satine inox) duvar panelleri, derz çizgileriyle
-##   - arka duvarda tam boy ayna, 900 mm'de yuvarlak paslanmaz küpeşte
-##   - koyu granit zemin, paslanmaz süpürgelik
-##   - beyaz asma tavan + 4 gömme spot
-##   - COP: kırmızı nokta-matris gösterge, iki kolon yuvarlak buton, braille,
-##     kapı aç/kapa, alarm, telefon ızgarası, anahtarlı şalter
+## A modern elevator car, built to real dimensions:
+##   - brushed stainless (satin inox) wall panels with reveal lines
+##   - full-height mirror on the rear wall, round stainless handrail at 900 mm
+##   - dark granite floor, stainless skirting
+##   - white suspended ceiling + 4 recessed downlights
+##   - COP: red dot-matrix indicator, two columns of round buttons, braille,
+##     door open/close, alarm, phone grille, key switch
 ##
-## Kabin düğümünün Y konumu = encoder konumu (pos_mm / 1000).
+## The Y position of the car node = the encoder position (pos_mm / 1000).
 
 const W := LiftCfg.M_CAR_W
 const D := LiftCfg.M_CAR_D
@@ -17,8 +17,8 @@ const H := LiftCfg.M_CAR_H
 const WALL := 0.04
 const DOOR_Z := LiftCfg.M_CAR_D * 0.5 + 0.02
 
-const BTN_R := 0.022          # buton bilezik yarıçapı (~44 mm çap)
-const COP_X := 0.050          # buton kolon aralığı
+const BTN_R := 0.022          # button halo radius (~44 mm diameter)
+const COP_X := 0.050          # button column spacing
 
 var door_left: Node3D
 var door_right: Node3D
@@ -60,9 +60,9 @@ func _build_sling() -> void:
 					Vector3(sx * (W * 0.5 + 0.16), sy, 0), Vis.mat("rubber"))
 	Vis.box(self, Vector3(W + 0.24, 0.12, 0.22), Vector3(0, -0.16, 0), Vis.mat("steel_dark"))
 
-	# --- halat baglanti kancasi (hitch plate + yay grubu) -------------------
-	# Gercek asansorde her halat, plakaya bir baski yayi uzerinden baglanir;
-	# yaylar yuku esitler ve halat gerginligini dengeler.
+	# --- rope hitch (hitch plate + spring set) ------------------------------
+	# On a real elevator every rope attaches to the plate through a compression
+	# spring; the springs equalise the load and balance the rope tension.
 	var hy := H + 0.34
 	var rope_w: float = (LiftCfg.ROPE_COUNT - 1) * LiftCfg.ROPE_PITCH
 	Vis.box(self, Vector3(rope_w + 0.16, 0.030, 0.14),
@@ -71,15 +71,15 @@ func _build_sling() -> void:
 			Vector3(0, hy - 0.16, LiftCfg.M_ROPE_Z_CAR), Vis.mat("steel"))
 	for i in range(LiftCfg.ROPE_COUNT):
 		var rx: float = (float(i) - (LiftCfg.ROPE_COUNT - 1) * 0.5) * LiftCfg.ROPE_PITCH
-		# baski yayi
+		# compression spring
 		Vis.cyl(self, 0.014, 0.13, Vector3(rx, hy - 0.08, LiftCfg.M_ROPE_Z_CAR),
 				Vis.mat("steel_dark"))
-		# halat sokesi / gerdirme cubugu
+		# rope socket / tension rod
 		Vis.cyl(self, 0.006, 0.20, Vector3(rx, hy - 0.06, LiftCfg.M_ROPE_Z_CAR),
 				Vis.mat("steel"))
 		Vis.cyl(self, 0.011, 0.026, Vector3(rx, hy + 0.020, LiftCfg.M_ROPE_Z_CAR),
 				Vis.mat("steel_dark"))
-	# plakayi kabin sasisine baglayan kirisler
+	# beams tying the plate to the car sling
 	for sxh: float in [-1.0, 1.0]:
 		Vis.box(self, Vector3(0.05, 0.30, 0.10),
 				Vector3(sxh * (rope_w * 0.5 + 0.05), hy - 0.30, LiftCfg.M_ROPE_Z_CAR),
@@ -87,7 +87,7 @@ func _build_sling() -> void:
 
 
 func _build_shell() -> void:
-	# --- zemin: koyu granit + acik bordur ----------------------------------
+	# --- floor: dark granite + light border ---------------------------------
 	Vis.box(self, Vector3(W, LiftCfg.M_CAR_FLOOR_T, D),
 			Vector3(0, -LiftCfg.M_CAR_FLOOR_T * 0.5, 0), Vis.mat("steel_dark"))
 	Vis.box(self, Vector3(W - 0.02, 0.02, D - 0.02), Vector3(0, 0.01, 0),
@@ -95,14 +95,14 @@ func _build_shell() -> void:
 	Vis.box(self, Vector3(W - 0.16, 0.022, D - 0.16), Vector3(0, 0.012, 0),
 			Vis.mat("granite"))
 
-	# --- dis kabuk (kuyudan bakildiginda) -----------------------------------
+	# --- outer shell (as seen from the shaft) -------------------------------
 	Vis.box(self, Vector3(W, 0.08, D), Vector3(0, H + 0.04, 0), Vis.mat("inox_dark"))
 	Vis.box(self, Vector3(W, H, WALL), Vector3(0, H * 0.5, -D * 0.5), Vis.mat("inox_dark"))
 	for sx: float in [-1.0, 1.0]:
 		Vis.box(self, Vector3(WALL, H, D), Vector3(sx * W * 0.5, H * 0.5, 0),
 				Vis.mat("inox_dark"))
 
-	# --- on yuz: kapi acikliginin yanlari ve ustu ---------------------------
+	# --- front face: sides and head of the door opening ----------------------
 	var side := (W - LiftCfg.M_DOOR_W) * 0.5
 	for sx: float in [-1.0, 1.0]:
 		Vis.box(self, Vector3(side, H, WALL),
@@ -111,13 +111,13 @@ func _build_shell() -> void:
 	Vis.box(self, Vector3(LiftCfg.M_DOOR_W, H - LiftCfg.M_DOOR_H, WALL),
 			Vector3(0, LiftCfg.M_DOOR_H + (H - LiftCfg.M_DOOR_H) * 0.5, D * 0.5),
 			Vis.mat("inox"))
-	# esik (paslanmaz)
+	# sill (stainless)
 	Vis.box(self, Vector3(LiftCfg.M_DOOR_W + 0.10, 0.03, 0.10),
 			Vector3(0, 0.015, D * 0.5 - 0.02), Vis.mat("inox"))
 
-	# --- etek saci (apron / toe guard): esigin altinda, kuyu tarafina bakar ---
-	# Gercek asansorlerde kabin kat arasinda kalirsa yolcunun kuyuya dusmesini
-	# engelleyen bukumlu sac.
+	# --- apron (toe guard): below the sill, facing into the shaft -----------
+	# On a real elevator this folded sheet stops a passenger falling into the
+	# shaft if the car is stranded between floors.
 	Vis.box(self, Vector3(LiftCfg.M_DOOR_W + 0.22, 0.75, 0.016),
 			Vector3(0, -0.375, D * 0.5 + 0.008), Vis.mat("inox_dark"))
 	Vis.box(self, Vector3(LiftCfg.M_DOOR_W + 0.22, 0.02, 0.06),
@@ -127,7 +127,7 @@ func _build_shell() -> void:
 				Vector3(sx4 * (LiftCfg.M_DOOR_W * 0.5 + 0.10), -0.375, D * 0.5 - 0.018),
 				Vis.mat("inox_dark"))
 
-	# --- kabin ustu koruma korkulugu (EN 81 gerekliligi) --------------------
+	# --- car top guard rail (an EN 81 requirement) --------------------------
 	var rail_h := LiftCfg.M_CARTOP_RAIL
 	for sx5: float in [-1.0, 1.0]:
 		for sz5: float in [-1.0, 1.0]:
@@ -145,42 +145,42 @@ func _build_shell() -> void:
 					Vector3(sx6 * (W * 0.5 - 0.10), H + 0.08 + hy2, 0), Vis.mat("steel"))
 			b2.rotation_degrees = Vector3(90, 0, 0)
 
-	# kabin ustu revizyon kutusu
+	# car top inspection box
 	Vis.box(self, Vector3(0.36, 0.22, 0.16), Vector3(-0.55, H + 0.20, 0.55), Vis.mat("panel"))
-	var l := Vis.label(self, "REVIZYON", Vector3(-0.55, H + 0.35, 0.55), 0.00055,
+	var l := Vis.label(self, "INSPECTION", Vector3(-0.55, H + 0.35, 0.55), 0.00055,
 			Color(0.9, 0.7, 0.2))
 	l.outline_size = 0
 
 
-## Kabin ici kaplama: inox paneller, ayna, kupeste, supurgelik
+## Car interior finish: inox panels, mirror, handrail, skirting
 func _build_interior_finish() -> void:
 	var inner_w := W * 0.5 - WALL - 0.005
 	var inner_d := D * 0.5 - WALL - 0.005
 	var rail_y := 0.90
 
-	# --- arka duvar: alt inox + ust ayna ------------------------------------
+	# --- rear wall: inox below, mirror above --------------------------------
 	Vis.box(self, Vector3(W - 2 * WALL, rail_y - 0.02, 0.012),
 			Vector3(0, (rail_y - 0.02) * 0.5, -inner_d), Vis.mat("inox"))
 	Vis.box(self, Vector3(W - 2 * WALL - 0.10, H - rail_y - 0.22, 0.010),
 			Vector3(0, rail_y + 0.06 + (H - rail_y - 0.22) * 0.5, -inner_d + 0.004),
 			Vis.mat("mirror"))
-	# ayna cercevesi
+	# mirror frame
 	Vis.box(self, Vector3(W - 2 * WALL - 0.06, 0.02, 0.016),
 			Vector3(0, rail_y + 0.04, -inner_d + 0.002), Vis.mat("inox"))
 	Vis.box(self, Vector3(W - 2 * WALL - 0.06, 0.02, 0.016),
 			Vector3(0, H - 0.14, -inner_d + 0.002), Vis.mat("inox"))
 
-	# --- yan duvarlar: dikey derzli inox paneller ---------------------------
+	# --- side walls: inox panels with vertical reveals ----------------------
 	for sx: float in [-1.0, 1.0]:
 		var x := sx * inner_w
 		Vis.box(self, Vector3(0.012, H - 0.10, D - 2 * WALL),
 				Vector3(x, (H - 0.10) * 0.5, 0), Vis.mat("inox"))
-		# panel derz cizgileri
+		# panel reveal lines
 		for k in range(3):
 			var z := -D * 0.5 + 0.42 + k * 0.42
 			Vis.box(self, Vector3(0.016, H - 0.14, 0.008),
 					Vector3(x - sx * 0.004, (H - 0.14) * 0.5 + 0.02, z), Vis.mat("inox_line"))
-		# kupeste (yuvarlak paslanmaz boru)
+		# handrail (round stainless tube)
 		var rail := Vis.cyl(self, 0.019, D - 2 * WALL - 0.12,
 				Vector3(x - sx * 0.055, rail_y, 0), Vis.mat("inox"))
 		rail.rotation_degrees = Vector3(90, 0, 0)
@@ -189,7 +189,7 @@ func _build_interior_finish() -> void:
 					sz * (D * 0.5 - WALL - 0.09)), Vis.mat("inox")).rotation_degrees = \
 					Vector3(0, 0, 90)
 
-	# --- arka kupeste -------------------------------------------------------
+	# --- rear handrail ------------------------------------------------------
 	var brail := Vis.cyl(self, 0.019, W - 2 * WALL - 0.16,
 			Vector3(0, rail_y, -inner_d + 0.055), Vis.mat("inox"))
 	brail.rotation_degrees = Vector3(0, 0, 90)
@@ -197,26 +197,26 @@ func _build_interior_finish() -> void:
 		Vis.cyl(self, 0.014, 0.055, Vector3(sx2 * (W * 0.5 - WALL - 0.10), rail_y,
 				-inner_d + 0.028), Vis.mat("inox")).rotation_degrees = Vector3(90, 0, 0)
 
-	# --- supurgelik ---------------------------------------------------------
+	# --- skirting -----------------------------------------------------------
 	Vis.box(self, Vector3(W - 2 * WALL, 0.09, 0.014),
 			Vector3(0, 0.045, -inner_d + 0.006), Vis.mat("inox_dark"))
 	for sx3: float in [-1.0, 1.0]:
 		Vis.box(self, Vector3(0.014, 0.09, D - 2 * WALL),
 				Vector3(sx3 * (inner_w - 0.006), 0.045, 0), Vis.mat("inox_dark"))
 
-	# --- kapi ustu paslanmaz bant (header) ----------------------------------
+	# --- stainless header above the door ------------------------------------
 	var fz := D * 0.5 - WALL - 0.006
 	Vis.box(self, Vector3(LiftCfg.M_DOOR_W + 0.30, 0.11, 0.014),
 			Vector3(0, LiftCfg.M_DOOR_H + 0.055, fz), Vis.mat("inox"))
 	Vis.box(self, Vector3(LiftCfg.M_DOOR_W + 0.30, 0.012, 0.020),
 			Vector3(0, LiftCfg.M_DOOR_H + 0.005, fz), Vis.mat("inox_line"))
-	# kapi yanlarindaki donus panelleri (front return) derz cizgisi
+	# reveal line on the front return panels beside the door
 	for sx7: float in [-1.0, 1.0]:
 		Vis.box(self, Vector3(0.012, LiftCfg.M_DOOR_H, 0.018),
 				Vector3(sx7 * (LiftCfg.M_DOOR_W * 0.5 + 0.055),
 						LiftCfg.M_DOOR_H * 0.5, fz), Vis.mat("inox_line"))
 
-	# --- kabin ici kamera baglanti noktasi ----------------------------------
+	# --- in-car camera mount point ------------------------------------------
 	interior_cam_mount = Node3D.new()
 	interior_cam_mount.position = Vector3(-0.62, 1.58, -D * 0.5 + 0.24)
 	add_child(interior_cam_mount)
@@ -231,11 +231,11 @@ func _build_doors() -> void:
 		add_child(leaf)
 		Vis.box(leaf, Vector3(lw, LiftCfg.M_DOOR_H, LiftCfg.M_DOOR_T),
 				Vector3(0, LiftCfg.M_DOOR_H * 0.5, 0), Vis.mat("inox"))
-		# kapak kenar profili (kapanma tarafi)
+		# door edge profile (closing side)
 		Vis.box(leaf, Vector3(0.012, LiftCfg.M_DOOR_H, LiftCfg.M_DOOR_T + 0.006),
 				Vector3(-side * (lw * 0.5 - 0.006), LiftCfg.M_DOOR_H * 0.5, 0),
 				Vis.mat("inox_dark"))
-		# foto bariyer cubugu (kabin ici tarafta)
+		# photo curtain bar (on the car side)
 		Vis.box(leaf, Vector3(0.016, LiftCfg.M_DOOR_H - 0.18, 0.016),
 				Vector3(-side * (lw * 0.5 - 0.012), LiftCfg.M_DOOR_H * 0.5, -0.038),
 				Vis.mat("rubber"))
@@ -244,31 +244,31 @@ func _build_doors() -> void:
 		else:
 			door_right = leaf
 
-	# kapi operatoru (kabin ustu)
+	# door operator (on the car top)
 	Vis.box(self, Vector3(LiftCfg.M_DOOR_W + 0.3, 0.10, 0.10),
 			Vector3(0, H + 0.14, D * 0.5 - 0.05), Vis.mat("steel_dark"))
 	Vis.cyl(self, 0.07, 0.10, Vector3(-0.42, H + 0.14, D * 0.5 - 0.05),
 			Vis.mat("steel")).rotation_degrees = Vector3(0, 0, 90)
 
 
-## COP — kabin kumanda paneli (sag on donus duvarinda)
+## COP — car operating panel (on the right front return wall)
 func _build_cop() -> void:
 	var pivot := Node3D.new()
 	pivot.position = Vector3(W * 0.5 - WALL - 0.012, 0, D * 0.5 - 0.34)
 	pivot.rotation_degrees = Vector3(0, -90, 0)
 	add_child(pivot)
 
-	# --- panel plakasi ------------------------------------------------------
+	# --- panel plate --------------------------------------------------------
 	Vis.box(pivot, Vector3(0.24, 1.36, 0.014), Vector3(0, 1.32, 0.007), Vis.mat("inox"))
 	Vis.box(pivot, Vector3(0.225, 1.345, 0.004), Vector3(0, 1.32, 0.015),
 			Vis.mat("inox_dark"))
 
-	# --- kirmizi nokta-matris gosterge --------------------------------------
+	# --- red dot-matrix indicator -------------------------------------------
 	Vis.box(pivot, Vector3(0.185, 0.115, 0.006), Vector3(0, 1.86, 0.017),
 			Vis.mat("display_glass"))
 	display = LedDisplay.create(pivot, Vector3(0, 1.86, 0.021), 0.165)
 
-	# --- kat butonlari: 2 kolon, asagidan yukari ----------------------------
+	# --- floor buttons: 2 columns, bottom to top ----------------------------
 	var rows := int(ceil(LiftCfg.FLOOR_COUNT / 2.0))
 	floor_buttons.resize(LiftCfg.FLOOR_COUNT)
 	for f in range(LiftCfg.FLOOR_COUNT):
@@ -282,7 +282,7 @@ func _build_cop() -> void:
 		floor_buttons[f] = b
 	var _unused := rows
 
-	# --- kapi ac / kapa / alarm ---------------------------------------------
+	# --- door open / close / alarm ------------------------------------------
 	btn_open = Btn3D.create(pivot, "door_open", Vector3(-COP_X, 1.18, 0.020),
 			"<|>", BTN_R * 0.92)
 	btn_open.pushed.connect(_btn_cb)
@@ -293,49 +293,49 @@ func _build_cop() -> void:
 			"!", BTN_R * 0.92)
 	btn_alarm.pushed.connect(_btn_cb)
 
-	# anahtarli salter (sag alt)
+	# key switch (bottom right)
 	var ks := Vis.cyl(pivot, 0.015, 0.008, Vector3(COP_X, 1.09, 0.019), Vis.mat("inox_dark"))
 	ks.rotation_degrees = Vector3(90, 0, 0)
 	Vis.box(pivot, Vector3(0.004, 0.016, 0.004), Vector3(COP_X, 1.09, 0.024),
 			Vis.mat("inox_line"))
 
-	# --- acil telefon izgarasi ----------------------------------------------
+	# --- emergency phone grille ---------------------------------------------
 	for r in range(4):
 		for c in range(7):
 			Vis.cyl(pivot, 0.0035, 0.004,
 					Vector3(-0.048 + c * 0.016, 1.00 - r * 0.014, 0.016),
 					Vis.mat("inox_line")).rotation_degrees = Vector3(90, 0, 0)
 
-	# --- asiri yuk ikaz lambasi ---------------------------------------------
+	# --- overload warning lamp ----------------------------------------------
 	overload_lamp = Vis.box(pivot, Vector3(0.104, 0.019, 0.004),
 			Vector3(0, 1.762, 0.017), Vis.emissive(Color(0.10, 0.035, 0.03), 0.10))
-	_overload_txt = Vis.label(pivot, "ASIRI YUK", Vector3(0, 1.762, 0.021), 0.000125,
+	_overload_txt = Vis.label(pivot, "OVERLOAD", Vector3(0, 1.762, 0.021), 0.000125,
 			Color(0.34, 0.34, 0.35))
 	_overload_txt.outline_size = 0
 
-	# --- kabin kimlik plakasi -----------------------------------------------
-	var cap := Vis.label(pivot, "630 kg / 8 kisi", Vector3(0, 0.93, 0.018), 0.00013,
+	# --- car rating plate ---------------------------------------------------
+	var cap := Vis.label(pivot, "630 kg / 8 persons", Vector3(0, 0.93, 0.018), 0.00013,
 			Color(0.28, 0.29, 0.31))
 	cap.outline_size = 0
 
-	# --- yuk gostergesi (panelde) -------------------------------------------
+	# --- load readout (on the panel) ----------------------------------------
 	load_lbl = Vis.label(pivot, "", Vector3(0, 0.90, 0.018), 0.00012,
 			Color(0.34, 0.35, 0.38))
 	load_lbl.outline_size = 0
 
 
 func _build_ceiling() -> void:
-	# asma tavan
+	# suspended ceiling
 	ceiling_panel = Vis.box(self, Vector3(W - 2 * WALL - 0.04, 0.025, D - 2 * WALL - 0.04),
 			Vector3(0, H - 0.05, 0), Vis.mat("ceiling"))
-	# cevre isik bandi
+	# perimeter light strip
 	for sx: float in [-1.0, 1.0]:
 		Vis.box(self, Vector3(0.03, 0.02, D - 2 * WALL - 0.10),
 				Vector3(sx * (W * 0.5 - WALL - 0.03), H - 0.055, 0),
 				Vis.emissive(Color(1.0, 0.96, 0.90), 0.45))
 
-	# 4 gomme spot — her biri kendi isigiyla (tek buyuk parlama yerine
-	# gercek kabinlerdeki gibi dort ayri yumusak yansima)
+	# 4 recessed downlights — each with its own light, so instead of one big
+	# highlight you get four separate soft reflections, as in a real car
 	for sx2: float in [-1.0, 1.0]:
 		for sz: float in [-1.0, 1.0]:
 			var p := Vector3(sx2 * (W * 0.25), H - 0.062, sz * (D * 0.24))
@@ -355,7 +355,7 @@ func _build_ceiling() -> void:
 			add_child(dl)
 			_downlights.append(dl)
 
-	# genel dolgu (cok zayif)
+	# general fill (very weak)
 	cabin_light = OmniLight3D.new()
 	cabin_light.position = Vector3(0, H - 0.60, 0)
 	cabin_light.light_energy = 0.35
@@ -364,8 +364,9 @@ func _build_ceiling() -> void:
 	cabin_light.shadow_enabled = false
 	add_child(cabin_light)
 
-	# Kabin ici yansima probu: ayna ve paslanmaz yuzeyler kuyuyu/gokyuzunu degil
-	# kabinin kendisini yansitsin (ekran-uzayi yansimasinin yapamadigi sey).
+	# In-car reflection probe: the mirror and stainless surfaces should reflect
+	# the car itself, not the shaft or the sky — something screen-space
+	# reflection cannot do.
 	var probe := ReflectionProbe.new()
 	probe.size = Vector3(W + 0.1, H + 0.1, D + 0.1)
 	probe.position = Vector3(0, H * 0.5, 0)
@@ -378,7 +379,7 @@ func _build_ceiling() -> void:
 
 
 # =============================================================================
-# CANLI GUNCELLEME
+# LIVE UPDATE
 # =============================================================================
 func set_door(amount: float) -> void:
 	var travel := LiftCfg.M_DOOR_W * 0.5 * amount
@@ -386,9 +387,8 @@ func set_door(amount: float) -> void:
 	door_right.position.x = LiftCfg.M_DOOR_W * 0.25 + travel
 
 
-## Bu fonksiyonlar her karede cagriliyor; materyal degistirmek (ve
-## Vis.emissive icindeki metin anahtari uretmek) yalnizca durum
-## DEGISTIGINDE yapilmali.
+## These are called every frame; swapping a material (and building the text
+## key inside Vis.emissive) must only happen when the state actually CHANGES.
 var _light_on := true
 var _overload_on := false
 

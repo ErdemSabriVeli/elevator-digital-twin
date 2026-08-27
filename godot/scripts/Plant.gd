@@ -1,38 +1,38 @@
 class_name LiftPlant
 extends RefCounted
 
-## Fiziksel tesis modeli (plant) — dijital ikizin "gercek dunya" tarafi.
+## The physical plant model — the "real world" side of the digital twin.
 ##
-## PLC cikislarini (surucu / kapi komutlari) alir, kabin ve kapi hareketini
-## entegre eder, karsiliginda saha sensorlerini (encoder, kat sensoru, limit
-## switch, kapi limitleri, kilit kontagi) uretir.
+## It takes the PLC outputs (drive / door commands), integrates car and door
+## motion, and in return produces the field sensors (encoder, floor sensor,
+## limit switches, door limits, lock contact).
 ##
-## PLC bu modelde HICBIR sey hesaplamaz; PLC sadece kumanda eder.
+## The PLC computes NOTHING in this model; it only commands.
 
-# --- durum -------------------------------------------------------------------
-var pos_mm := 0.0                 # kabin mutlak konumu
-var speed_mms := 0.0              # isaretli: + yukari
-var accel_mms2 := 0.0             # anlik ivme (S-egrisi profili icin)
-var door_pos := 0.0               # 0 = tam kapali, 1 = tam acik
+# --- state -------------------------------------------------------------------
+var pos_mm := 0.0                 # absolute car position
+var speed_mms := 0.0              # signed: + is up
+var accel_mms2 := 0.0             # current acceleration (for the S-curve profile)
+var door_pos := 0.0               # 0 = fully closed, 1 = fully open
 var load_kg := 75
 
-# --- arıza / mod enjeksiyonu (HUD'dan degistirilir) --------------------------
+# --- fault / mode injection (toggled from the HUD) --------------------------
 var sw_estop := false
-var sw_safety_chain := true       # false = zincir koptu
+var sw_safety_chain := true       # false = chain broken
 var sw_governor_ok := true
 var sw_drive_fault := false
 var sw_fire := false
 var sw_inspection := false
-var sw_obstruction := false       # foto bariyer surekli kesik
-var sw_rope_slip := false         # encoder kaymasi simulasyonu
-var sw_brake_stuck := false       # fren mekanik olarak takili kaldi
-var sw_overspeed := false         # surucu kacagi -> asiri hiz
-var sw_car_jammed := false        # kabin sikisti / halat tamamen kayiyor
+var sw_obstruction := false       # light curtain permanently blocked
+var sw_rope_slip := false         # encoder drift simulation
+var sw_brake_stuck := false       # brake mechanically stuck
+var sw_overspeed := false         # drive runaway -> overspeed
+var sw_car_jammed := false        # car jammed / ropes slipping completely
 
-const BRAKE_RESPONSE_S := 0.15    # fren bobininin tepki suresi
+const BRAKE_RESPONSE_S := 0.15    # brake coil response time
 var _brake_t := 0.0
 
-# --- PLC komutlari (son alinan) ---------------------------------------------
+# --- PLC commands (last received) -------------------------------------------
 var c_drive_enable := false
 var c_run_up := false
 var c_run_down := false
@@ -42,12 +42,12 @@ var c_door_open := false
 var c_door_close := false
 var c_door_nudge := false
 
-# --- momentary butonlar ------------------------------------------------------
-var _pulse := {}                  # anahtar -> kalan sure
+# --- momentary buttons -------------------------------------------------------
+var _pulse := {}                  # key -> remaining time
 
-# --- olcum / gozlem ----------------------------------------------------------
+# --- measurement / observation -----------------------------------------------
 var brake_engaged := true
-var powered := false              # surucu gercekten tork uretiyor mu
+var powered := false              # is the drive actually producing torque
 var travel_distance_mm := 0.0
 var trip_count := 0
 var _was_moving := false
@@ -58,14 +58,14 @@ func _init() -> void:
 
 
 # =============================================================================
-# BUTONLAR
+# BUTTONS
 # =============================================================================
 func press(key: String) -> void:
 	_pulse[key] = LiftCfg.BTN_PULSE_S
 
 func hold(key: String, on: bool) -> void:
 	if on:
-		_pulse[key] = 0.05      # her karede yenilenir
+		_pulse[key] = 0.05      # refreshed every frame
 	else:
 		_pulse.erase(key)
 
@@ -80,7 +80,7 @@ func _tick_buttons(dt: float) -> void:
 
 
 # =============================================================================
-# PLC CIKISLARINI UYGULA
+# APPLY PLC OUTPUTS
 # =============================================================================
 func apply_outputs(o: PackedInt32Array) -> void:
 	if o.size() < LiftIo.REG_COUNT:
@@ -99,15 +99,14 @@ func apply_outputs(o: PackedInt32Array) -> void:
 
 
 # =============================================================================
-# FIZIK ADIMI
+# PHYSICS STEP
 # =============================================================================
 func step(dt: float) -> void:
 	_tick_buttons(dt)
 
-	# --- surucu -> hedef hiz ---------------------------------------------
-	# --- fren: komuta gecikmeli tepki verir (bobin akimi + yay) -------------
-	# sw_brake_stuck acikken fren mekanik olarak takili kalir; kumanda cozme
-	# emri verse de geri besleme gelmez -> PLC fren arizasi gorur.
+	# --- brake: responds to the command with a delay (coil current + spring) ---
+	# With sw_brake_stuck on the brake stays mechanically engaged; even with a
+	# release command no feedback arrives -> the PLC sees a brake fault.
 	if sw_brake_stuck:
 		_brake_t = 0.0
 		brake_engaged = true
@@ -123,8 +122,8 @@ func step(dt: float) -> void:
 	powered = c_drive_enable and not brake_engaged \
 			and not sw_estop and sw_safety_chain
 
-	# sw_overspeed: surucu kacagi — gercek hiz referansi asar, regulator
-	# devreye girmelidir.
+	# sw_overspeed: drive runaway — actual speed exceeds the reference and the
+	# governor must trip.
 	var v_ref := float(c_speed_sp)
 	if sw_overspeed:
 		v_ref *= 1.45
@@ -135,30 +134,31 @@ func step(dt: float) -> void:
 		elif c_run_down and not c_run_up:
 			v_target = -v_ref
 
-	# --- S-egrisi hiz profili (jerk sinirli) --------------------------------
-	# Gercek asansor surucusu ivmeyi bir anda uygulamaz; ivmenin degisim hizi
-	# (jerk) sinirlidir. Yolcunun "sarsilma" hissetmemesinin sebebi budur ve
-	# kalkis/durusun karakteristik yumusakligini bu verir.
+	# --- S-curve speed profile (jerk limited) ------------------------------
+	# A real elevator drive does not apply acceleration instantly; the rate of
+	# change of acceleration (jerk) is bounded. That is why passengers feel no
+	# jolt, and it gives starts and stops their characteristic smoothness.
 	#
-	#   a_stop = sqrt(2 * jerk * |hata|)  -> ivmeyi sifira indirmeye yetecek
-	#   deger; hedefe yaklasirken ivme kendiliginden geri cekilir, asma olmaz.
+	#   a_stop = sqrt(2 * jerk * |error|)  -> the acceleration that can still be
+	#   bled to zero; approaching the target it backs off on its own, no overshoot.
 	var a_max := LiftCfg.ACCEL_MMS2
 	if absf(v_target) < absf(speed_mms):
 		a_max = LiftCfg.DECEL_MMS2
 	var jerk := LiftCfg.JERK_MMS3
 
-	# Jerk siniri bir KONFOR kisitidir ve yalnizca yolcunun hissettigi
-	# hizlarda anlamlidir. Surunme (seviyeleme) hizinda gercek surucu de
-	# hizli tepki verir; burada da sinirlamayi gevsetiyoruz, aksi halde
-	# kabin kat seviyesini asar ve etrafinda salinir.
+	# The jerk limit is a COMFORT constraint and only matters at speeds the
+	# passenger feels. At creep (levelling) speed a real drive also reacts
+	# quickly, so we relax the limit here too — otherwise the car overshoots
+	# floor level and oscillates around it.
 	var creep := LiftCfg.V_LEVEL_MMS * 1.3
 	if absf(speed_mms) <= creep and absf(v_target) <= creep:
 		jerk = LiftCfg.JERK_MMS3 * 8.0
 
 	if not powered:
-		# FREN: surtunme elemanidir. Hizi sifira ceker ve orada birakir;
-		# kabini ters yone SUREMEZ. Bu yuzden jerk entegratoru burada
-		# kullanilmaz (kullanilirsa ivme sifiri asar ve kabin geri gider).
+		# BRAKE: a friction element. It pulls speed to zero and holds it there;
+		# it can NEVER drive the car backwards. That is why the jerk integrator
+		# is not used here (with it, acceleration overshoots zero and the car
+		# would reverse).
 		accel_mms2 = 0.0
 		speed_mms = move_toward(speed_mms, 0.0, LiftCfg.DECEL_MMS2 * 3.0 * dt)
 	else:
@@ -167,9 +167,9 @@ func step(dt: float) -> void:
 		if absf(v_err) > 0.001:
 			var a_stop := sqrt(2.0 * jerk * absf(v_err))
 			a_cmd = signf(v_err) * minf(a_max, a_stop)
-			# Tek adimda hedefi gecirecek ivmeyi komut etme. (Hedefi gectikten
-			# sonra ivmeyi sifira ZORLAMAK, jerk sinirini kendi elimizle ihlal
-			# etmek olurdu; bunun yerine komutu bastan siniriyoruz.)
+			# Do not command an acceleration that would overshoot the target in a
+			# single step. (FORCING acceleration to zero after overshooting would
+			# violate the jerk limit ourselves; we bound the command instead.)
 			var a_reach := v_err / dt
 			if absf(a_cmd) > absf(a_reach):
 				a_cmd = a_reach
@@ -177,17 +177,17 @@ func step(dt: float) -> void:
 		accel_mms2 = move_toward(accel_mms2, a_cmd, jerk * dt)
 		speed_mms += accel_mms2 * dt
 
-	# --- konum entegrasyonu ------------------------------------------------
+	# --- position integration ----------------------------------------------
 	var slip := 1.0
 	if sw_car_jammed:
-		slip = 0.0                           # kabin ilerlemiyor -> hareket zaman asimi
+		slip = 0.0                           # car does not advance -> travel timeout
 	elif sw_rope_slip and absf(speed_mms) > 10.0:
-		slip = 0.92                          # halat kaymasi -> encoder sapmasi
+		slip = 0.92                          # rope slip -> encoder drift
 	var d_mm := speed_mms * dt * slip
 	pos_mm += d_mm
 	travel_distance_mm += absf(d_mm)
 
-	# --- mekanik siniri (tampon) -------------------------------------------
+	# --- mechanical limit (buffer) -----------------------------------------
 	var pos_min := -float(LiftCfg.OVERTRAVEL_MM) - 100.0
 	var pos_max := float(LiftCfg.TOP_FLOOR * LiftCfg.FLOOR_HEIGHT_MM + LiftCfg.OVERTRAVEL_MM) + 100.0
 	if pos_mm <= pos_min:
@@ -197,12 +197,14 @@ func step(dt: float) -> void:
 		pos_mm = pos_max
 		speed_mms = 0.0
 
-	# --- kapi --------------------------------------------------------------
-	# Kapi motoru yalnizca kabin neredeyse duruyorken calisir (mekanik kavrama).
+	# --- door ---------------------------------------------------------------
+	# The door motor only runs while the car is nearly stopped (mechanical
+	# coupling).
 	#
-	# Gercek kapi operatoru sabit hizla surmez: kapali/acik uclarda yavaslar,
-	# ortada hizlanir. Bu hem mekanigi korur hem carpma sesini onler. Hiz
-	# carpani konuma bagli bir yarim-sinus zarfiyla modellenir.
+	# A real door operator does not run at constant speed: it slows near both
+	# ends and speeds up in the middle. That protects the mechanism and avoids
+	# slamming. The speed factor is modelled with a half-sine envelope over
+	# position.
 	if absf(speed_mms) < 100.0:
 		var env: float = 0.35 + 0.65 * sin(PI * clampf(door_pos, 0.0, 1.0))
 		if c_door_open:
@@ -213,7 +215,7 @@ func step(dt: float) -> void:
 				sp *= LiftCfg.DOOR_NUDGE_SCALE
 			door_pos = maxf(0.0, door_pos - sp)
 
-	# --- sefer sayaci ------------------------------------------------------
+	# --- trip counter ------------------------------------------------------
 	var mv := absf(speed_mms) > 5.0
 	if _was_moving and not mv:
 		trip_count += 1
@@ -221,13 +223,13 @@ func step(dt: float) -> void:
 
 
 # =============================================================================
-# SENSORLER -> MODBUS HOLDING REGISTERS
+# SENSORS -> MODBUS HOLDING REGISTERS
 # =============================================================================
 func build_registers(heartbeat: int) -> PackedInt32Array:
 	var r := PackedInt32Array()
 	r.resize(LiftIo.REG_COUNT)
 
-	# --- cagri butonlari ---------------------------------------------------
+	# --- call buttons ------------------------------------------------------
 	var up := 0
 	var dn := 0
 	var car := 0
@@ -242,7 +244,7 @@ func build_registers(heartbeat: int) -> PackedInt32Array:
 	r[LiftIo.IN_HALL_DOWN] = dn
 	r[LiftIo.IN_CAR_CALL] = car
 
-	# --- komut bitleri -----------------------------------------------------
+	# --- command bits ------------------------------------------------------
 	var overload := load_kg > LiftCfg.LOAD_OVER_KG
 	var cmd := 0
 	cmd = LiftIo.set_bit(cmd, LiftIo.CMD_DOOR_OPEN, is_pressed("door_open"))
@@ -260,20 +262,20 @@ func build_registers(heartbeat: int) -> PackedInt32Array:
 	cmd = LiftIo.set_bit(cmd, LiftIo.CMD_INSP_DOWN, is_pressed("insp_down"))
 	r[LiftIo.IN_CMD] = cmd
 
-	# --- kat (door zone) sensorleri ----------------------------------------
+	# --- floor (door zone) sensors -----------------------------------------
 	var zone := 0
 	for f in range(LiftCfg.FLOOR_COUNT):
 		if absf(pos_mm - f * LiftCfg.FLOOR_HEIGHT_MM) <= LiftCfg.DOOR_ZONE_MM:
 			zone = LiftIo.set_bit(zone, f, true)
 	r[LiftIo.IN_FLOOR_ZONE] = zone
 
-	# --- limitler ve kilit -------------------------------------------------
+	# --- limits and lock ---------------------------------------------------
 	var top_lim := pos_mm >= float(LiftCfg.TOP_FLOOR * LiftCfg.FLOOR_HEIGHT_MM + LiftCfg.OVERTRAVEL_MM)
 	var bot_lim := pos_mm <= -float(LiftCfg.OVERTRAVEL_MM)
 	var d_open := door_pos >= 0.995
 	var d_close := door_pos <= 0.005
-	# Kat kapisi kilit zinciri: kapi tam kapali VE kabin bir kat bolgesinde
-	# degilse de kilitli sayilir (kapi kuyuda acilamaz).
+	# Landing door lock chain: counted as locked when the door is fully closed
+	# (a landing door cannot be opened out in the shaft).
 	var locked := d_close
 
 	var lim := 0
@@ -287,7 +289,7 @@ func build_registers(heartbeat: int) -> PackedInt32Array:
 	lim = LiftIo.set_bit(lim, LiftIo.LIM_GOVERNOR, sw_governor_ok)
 	r[LiftIo.IN_LIMITS] = lim
 
-	# --- analog ------------------------------------------------------------
+	# --- analogue ----------------------------------------------------------
 	r[LiftIo.IN_POS_MM] = clampi(int(round(pos_mm)), 0, 65535)
 	r[LiftIo.IN_SPEED_MMS] = clampi(int(absf(speed_mms)), 0, 65535)
 	r[LiftIo.IN_DOOR_PMIL] = clampi(int(door_pos * 1000.0), 0, 1000)
@@ -298,12 +300,12 @@ func build_registers(heartbeat: int) -> PackedInt32Array:
 
 
 func _obstructed() -> bool:
-	# Elle acilan foto bariyer veya "yolcu geciyor" darbesi
+	# The manual light-curtain switch or a "passenger passing" pulse
 	return sw_obstruction or is_pressed("obstruct")
 
 
 # =============================================================================
-# Yardimcilar (gorsel taraf icin)
+# Helpers (for the visual side)
 # =============================================================================
 func car_y() -> float:
 	return pos_mm * 0.001
@@ -312,8 +314,8 @@ func nearest_floor() -> int:
 	return clampi(int(round(pos_mm / LiftCfg.FLOOR_HEIGHT_MM)), 0, LiftCfg.TOP_FLOOR)
 
 func counterweight_y() -> float:
-	# 1:1 aski: kabin yukari cikarken karsi agirlik asagi iner.
-	# Ofset, kabin en ustteyken agirligin kuyu dibi tamponuna oturmayacak
-	# sekilde secilir (bkz. tests/geometry_test.gd).
+	# 1:1 roping: as the car goes up the counterweight comes down.
+	# The offset is chosen so the counterweight does not land on the pit buffer
+	# when the car is at the top (see tests/geometry_test.gd).
 	var top := float(LiftCfg.TOP_FLOOR) * LiftCfg.M_FLOOR_H
 	return top - car_y() - 0.10

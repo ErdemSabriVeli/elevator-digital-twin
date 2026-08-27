@@ -1,23 +1,24 @@
 class_name SoftPlc
 extends RefCounted
 
-## codesys/ klasorundeki ST kodunun BIREBIR GDScript ikizi.
+## A LINE-FOR-LINE GDScript twin of the ST code in codesys/.
 ##
-## Sinif  <-> POU esleme:
-##   Ton           <-> TON (standart)
+## Class <-> POU mapping:
+##   Ton           <-> TON (standard)
 ##   CallRegistry  <-> FB_CallRegistry.st
 ##   Dispatcher    <-> FB_Dispatcher.st
 ##   DoorCtrl      <-> FB_DoorCtrl.st
 ##   Motion        <-> FB_Motion.st
 ##   Safety        <-> FB_Safety.st
 ##   LiftCore      <-> FB_LiftCore.st
-##   scan()        <-> PLC_PRG.st  (Modbus register <-> struct donusumu dahil)
+##   scan()        <-> PLC_PRG.st  (including the Modbus register <-> struct
+##                                  conversion)
 ##
-## Blok cagri sirasi ST ile ayni tutulmustur; boylece "bir tarama gecikmesi"
-## davranisi da ayni olur ve CODESYS ile Godot ayni sonucu uretir.
+## The block call order is kept identical to the ST, so the "one scan of lag"
+## behaviour matches too and CODESYS and Godot produce the same result.
 
 # =============================================================================
-# Yardimci: TON zamanlayici
+# Helper: TON timer
 # =============================================================================
 class Ton extends RefCounted:
 	var et := 0.0
@@ -37,8 +38,8 @@ class Ton extends RefCounted:
 		q = false
 
 
-## TOF — kapanma gecikmesi: giris TRUE iken Q TRUE, giris dustukten sonra
-## PT suresi boyunca Q TRUE kalmaya devam eder. (CODESYS standart TOF)
+## TOF - off delay: Q is TRUE while the input is TRUE, and stays TRUE for PT
+## after the input falls. (The standard CODESYS TOF.)
 class Tof extends RefCounted:
 	var et := 0.0
 	var q := false
@@ -254,7 +255,7 @@ class Dispatcher extends RefCounted:
 		target = -1
 		new_dir = cur_dir
 
-		# 1) mevcut yonde devam
+		# 1) keep going in the current direction
 		if cur_dir == LiftIo.DIR_UP:
 			var b := nearest_above(cur_floor)
 			if b >= 0:
@@ -275,14 +276,14 @@ class Dispatcher extends RefCounted:
 				new_dir = LiftIo.DIR_UP; has_job = true
 				return
 
-		# 2) ayni katta cagri
+		# 2) a call at the current floor
 		if call_at(cur_floor):
 			target = cur_floor
 			new_dir = LiftIo.DIR_NONE
 			has_job = true
 			return
 
-		# 3) en yakin cagri
+		# 3) the nearest call
 		var n := nearest_any(cur_floor)
 		if n >= 0:
 			target = n
@@ -500,7 +501,7 @@ class Motion extends RefCounted:
 			top_limit: bool, bot_limit: bool,
 			inspection: bool, insp_up: bool, insp_down: bool, dt: float) -> void:
 
-		# --- revizyon modu --------------------------------------------------
+		# --- inspection mode ------------------------------------------------
 		if inspection:
 			at_target = false
 			_t_travel.reset()
@@ -520,7 +521,7 @@ class Motion extends RefCounted:
 			leveling = true
 			return
 
-		# --- hedef yok / izin yok -------------------------------------------
+		# --- no target / not permitted --------------------------------------
 		if target_floor < 0 or target_floor > LiftCfg.TOP_FLOOR or not enable:
 			drive_enable = false
 			run_up = false
@@ -530,8 +531,8 @@ class Motion extends RefCounted:
 			speed_sp = 0
 			dir = LiftIo.DIR_NONE
 			at_target = false
-			# Zamanlayici ile birlikte CIKIS BAYRAGI da temizlenmeli; aksi halde
-			# bir kez olusan zaman asimi kalici kalir ve ariza reset edilemez.
+			# The OUTPUT FLAG has to be cleared along with the timer; otherwise a
+			# timeout that fired once sticks and the fault can never be reset.
 			_t_travel.reset()
 			timeout = false
 			return
@@ -540,7 +541,7 @@ class Motion extends RefCounted:
 		err_mm = target_mm - pos_mm
 		var abs_err: int = abs(err_mm)
 
-		# --- hedefe varildi --------------------------------------------------
+		# --- target reached --------------------------------------------------
 		if abs_err <= LiftCfg.LEVEL_TOL_MM:
 			at_target = true
 			run_up = false
@@ -557,13 +558,13 @@ class Motion extends RefCounted:
 		at_target = false
 		_t_brake.reset()
 
-		# --- ucdaki limitler -------------------------------------------------
+		# --- the end limits ---------------------------------------------------
 		if (err_mm > 0 and top_limit) or (err_mm < 0 and bot_limit):
 			drive_enable = false; run_up = false; run_down = false
 			speed_sp = 0; brake_release = false; dir = LiftIo.DIR_NONE
 			return
 
-		# --- hiz profili -----------------------------------------------------
+		# --- speed profile ----------------------------------------------------
 		if abs_err <= LiftCfg.DOOR_ZONE_MM:
 			speed_sp = LiftCfg.V_LEVEL_MMS
 			leveling = true
@@ -591,8 +592,8 @@ class Motion extends RefCounted:
 		_t_travel.reset()
 		timeout = false
 
-	## Fren geri beslemesi denetimi: kumanda ile saha uyusmali.
-	## brake_cmd = fren coz komutu, brake_fb = fren gercekten cozuldu sinyali
+	## Brake feedback supervision: the command and the field must agree.
+	## brake_cmd = brake release command, brake_fb = brake actually released
 	func brake_mismatch(brake_cmd: bool, brake_fb: bool, dt: float) -> bool:
 		_t_brake_fb.update(brake_cmd != brake_fb, LiftCfg.T_BRAKE_FB, dt)
 		return _t_brake_fb.q
@@ -616,7 +617,7 @@ class Safety extends RefCounted:
 	var _reset_edge := RTrig.new()
 	var _t_overspeed := Ton.new()
 
-	## Regulator islevi: gercek hiz anma hizinin %115'ini asarsa devreye girer.
+	## Governor function: it trips if the actual speed exceeds 115% of rated.
 	func overspeed_trip(act_speed_mms: int, dt: float) -> bool:
 		_t_overspeed.update(act_speed_mms > LiftCfg.V_OVERSPEED_MMS,
 				LiftCfg.T_OVERSPEED, dt)
@@ -696,9 +697,9 @@ class LiftCore extends RefCounted:
 		disp = Dispatcher.new(calls.latch)
 
 	func scan(inp: Inputs, dt: float) -> Outputs:
-		# --- 1) guvenlik ----------------------------------------------------
-		# Regulator (asiri hiz) ve fren geri besleme denetimi: her ikisi de
-		# sahadan gelen olcumu kumanda ile karsilastirir.
+		# --- 1) safety -------------------------------------------------------
+		# The governor (overspeed) and the brake feedback supervision: both
+		# compare a measurement from the field against the command.
 		var overspeed := safety.overspeed_trip(inp.act_speed_mms, dt)
 		var brake_bad := motion.brake_mismatch(out.brake_release, inp.brake_fb, dt)
 
@@ -707,7 +708,7 @@ class LiftCore extends RefCounted:
 				inp.door_locked, out.moving, door.fault, motion.timeout,
 				_zone_mism, overspeed, brake_bad, inp.fault_reset)
 
-		# --- 2) konum / kat takibi ------------------------------------------
+		# --- 2) position / floor tracking -------------------------------------
 		cur_floor = Motion.floor_from_pos(inp.pos_mm)
 		_zone_floor = -1
 		for i in range(LiftCfg.TOP_FLOOR + 1):
@@ -715,15 +716,15 @@ class LiftCore extends RefCounted:
 				_zone_floor = i
 		_zone_mism = _zone_floor >= 0 and _zone_floor != cur_floor
 
-		# --- 3) cagri kaydi --------------------------------------------------
+		# --- 3) call registration ---------------------------------------------
 		var clear_calls: bool = inp.fire_call or inp.inspection or safety.is_fault
 		calls.scan(inp.calls, clear_calls,
 				not inp.inspection and not safety.is_fault and not inp.fire_call)
 
-		# --- 4) hedef secimi -------------------------------------------------
+		# --- 4) target selection ----------------------------------------------
 		disp.scan(cur_floor, dir)
 
-		# --- 5) ana durum makinesi -------------------------------------------
+		# --- 5) the main state machine ----------------------------------------
 		var door_req_open := false
 		var door_req_close := false
 		var serve_done := false
@@ -779,7 +780,7 @@ class LiftCore extends RefCounted:
 
 			LiftIo.State.DOOR_CLOSING:
 				door_req_close = true
-				# Asiri yuk KALKISI engeller (seyir halindeki kabini durdurmaz).
+				# Overload inhibits the START (it does not stop a travelling car).
 				if door.is_closed and inp.door_locked and not inp.overload:
 					_t_start.update(true, LiftCfg.T_START_DELAY, dt)
 					if _t_start.q:
@@ -821,8 +822,8 @@ class LiftCore extends RefCounted:
 			LiftIo.State.ARRIVED:
 				target_flr = -1
 				serve_done = true
-				# Gong burada KURULUR; calma suresi durum degisiminden
-				# bagimsiz olarak asagida sayilir (ARRIVED tek tarama surer).
+				# The gong is ARMED here; its duration is counted below,
+				# independently of the state change (ARRIVED lasts one scan).
 				_gong_arm = true
 				_t_gong.reset()
 				state = LiftIo.State.DOOR_OPENING
@@ -850,9 +851,10 @@ class LiftCore extends RefCounted:
 					state = LiftIo.State.IDLE
 
 			LiftIo.State.FIRE:
-				# Tahliye katina varis MANDALLANIR. Aksi halde kapi acilinca
-				# hareket blogu devre disi kalir, at_target duser ve kumanda
-				# kapiyi yeniden kapatmaya calisir (ac-kapa dongusu).
+				# Arrival at the fire recall floor is LATCHED. Otherwise, once the
+				# door opens the motion block is disabled, at_target drops and
+				# the controller tries to close the door again (an open/close
+				# loop).
 				if not _fire_parked:
 					dir = LiftIo.DIR_DOWN
 					target_flr = LiftCfg.FIRE_FLOOR
@@ -860,7 +862,7 @@ class LiftCore extends RefCounted:
 					if cur_floor == LiftCfg.FIRE_FLOOR and motion.at_target:
 						_fire_parked = true
 				else:
-					# tahliye katinda park: surucu serbest, kapi acik kalir
+					# parked at the recall floor: drive released, door stays open
 					target_flr = -1
 					dir = LiftIo.DIR_NONE
 					door_req_open = true
@@ -886,8 +888,8 @@ class LiftCore extends RefCounted:
 		if serve_done:
 			calls.serve_floor(cur_floor, dir)
 
-		# --- 5b) gong ve alarm zili ------------------------------------------
-		# Gong ARRIVED'de kurulur, C_T_GONG boyunca calar (durumdan bagimsiz).
+		# --- 5b) gong and alarm bell ------------------------------------------
+		# The gong is armed in ARRIVED and rings for C_T_GONG (state independent).
 		if _gong_arm:
 			_t_gong.update(true, LiftCfg.T_GONG, dt)
 			out.gong = not _t_gong.q
@@ -896,12 +898,12 @@ class LiftCore extends RefCounted:
 		else:
 			out.gong = false
 
-		# Alarm butonu anlik (momentary) gelir; zil basildiktan sonra
-		# T_ALARM suresince calmaya devam eder (TOF).
+		# The alarm button is momentary; the bell keeps ringing for T_ALARM
+		# after it is pressed (a TOF).
 		_t_alarm.update(inp.alarm_btn, LiftCfg.T_ALARM, dt)
 		out.alarm = _t_alarm.q
 
-		# --- 6) kapi ---------------------------------------------------------
+		# --- 6) door -----------------------------------------------------------
 		var dwell: float = LiftCfg.T_DOOR_DWELL if (calls.latch.car[cur_floor] or dir == LiftIo.DIR_NONE) \
 				else LiftCfg.T_DOOR_DWELL_HALL
 
@@ -909,13 +911,13 @@ class LiftCore extends RefCounted:
 				inp.door_open_limit, inp.door_close_limit, inp.obstruction,
 				inp.door_open_btn, inp.door_close_btn, inp.overload, dwell, dt)
 
-		# --- 7) hareket ------------------------------------------------------
-		# Asiri yuk burada YOK: kalkis kilidi DOOR_CLOSING durumundadir.
+		# --- 7) motion ---------------------------------------------------------
+		# No overload check here: the start inhibit lives in DOOR_CLOSING.
 		motion.scan(safety.run_allow and door.is_closed and inp.door_locked and homed,
 				target_flr, inp.pos_mm, inp.top_limit, inp.bot_limit,
 				inp.inspection, inp.insp_up, inp.insp_down, dt)
 
-		# --- 8) cikislar -----------------------------------------------------
+		# --- 8) outputs --------------------------------------------------------
 		out.drive_enable = motion.drive_enable
 		out.run_up = motion.run_up
 		out.run_down = motion.run_down
@@ -959,15 +961,15 @@ class LiftCore extends RefCounted:
 
 
 # =============================================================================
-# PLC_PRG  —  Modbus register <-> struct donusumu
+# PLC_PRG  -  the Modbus register <-> struct conversion
 # =============================================================================
 var core := LiftCore.new()
 var _inp := Inputs.new()
 
 
-## Bir PLC tarama cevrimi. mb_in: 16 holding register, donus: 16 input register.
+## One PLC scan. mb_in: 16 holding registers, returns: 16 input registers.
 func scan(mb_in: PackedInt32Array, dt: float) -> PackedInt32Array:
-	# --- 1) girisler -----------------------------------------------------
+	# --- 1) inputs ---------------------------------------------------------
 	var cmd := mb_in[LiftIo.IN_CMD]
 	var lim := mb_in[LiftIo.IN_LIMITS]
 
@@ -1005,10 +1007,10 @@ func scan(mb_in: PackedInt32Array, dt: float) -> PackedInt32Array:
 	_inp.door_pos_pmil = mb_in[LiftIo.IN_DOOR_PMIL]
 	_inp.load_kg = mb_in[LiftIo.IN_LOAD_KG]
 
-	# --- 2) kontrol mantigi ----------------------------------------------
+	# --- 2) control logic --------------------------------------------------
 	var o := core.scan(_inp, dt)
 
-	# --- 3) cikislar ------------------------------------------------------
+	# --- 3) outputs --------------------------------------------------------
 	var mb_out := PackedInt32Array()
 	mb_out.resize(LiftIo.REG_COUNT)
 

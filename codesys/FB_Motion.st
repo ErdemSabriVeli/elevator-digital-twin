@@ -1,21 +1,21 @@
 (*
     ============================================================================
-    FB_Motion   —   Hareket / hiz profili / kat takibi
+    FB_Motion   -   Motion / speed profile / floor tracking
     ----------------------------------------------------------------------------
-    Surucu (VVVF) referansi uretir:  yon + hiz setpoint + fren.
-    Profil:
-        |hata| >= C_DECEL_DIST_MM        -> nominal hiz
-        C_DOOR_ZONE_MM < |hata| < decel  -> lineer yavaslama rampasi
-        |hata| <= C_DOOR_ZONE_MM         -> seviyeleme (surunme) hizi
-        |hata| <= C_LEVEL_TOL_MM         -> dur, fren tut
-    Godot karsiligi: SoftPlc.gd -> class Motion
+    Produces the drive (VVVF) reference:  direction + speed setpoint + brake.
+    The profile:
+        |error| >= C_DECEL_DIST_MM        -> rated speed
+        C_DOOR_ZONE_MM < |error| < decel  -> linear deceleration ramp
+        |error| <= C_DOOR_ZONE_MM         -> levelling (creep) speed
+        |error| <= C_LEVEL_TOL_MM         -> stop, apply the brake
+    Godot counterpart: SoftPlc.gd -> class Motion
     ============================================================================
 *)
 FUNCTION_BLOCK FB_Motion
 VAR_INPUT
-    xEnable      : BOOL;      // hareket izni (kapi kilitli + guvenlik ok)
+    xEnable      : BOOL;      // permission to move (door locked + safety ok)
     iTargetFloor : INT := -1;
-    diPosMM      : DINT;      // encoder mutlak konum
+    diPosMM      : DINT;      // absolute encoder position
     xTopLimit    : BOOL;
     xBotLimit    : BOOL;
     xInspection  : BOOL;
@@ -44,7 +44,7 @@ VAR
 END_VAR
 
 // ---------------------------------------------------------------------------
-// Revizyon modu: hedef yok, sadece butona basildigi surece surunme hizinda
+// Inspection mode: no target, creep speed only while a button is held
 // ---------------------------------------------------------------------------
 IF xInspection THEN
     xAtTarget := FALSE;
@@ -69,7 +69,7 @@ IF xInspection THEN
 END_IF
 
 // ---------------------------------------------------------------------------
-// Normal mod
+// Normal mode
 // ---------------------------------------------------------------------------
 IF (iTargetFloor < 0) OR (iTargetFloor > C_TOP_FLOOR) OR NOT xEnable THEN
     xDriveEnable  := FALSE;
@@ -80,8 +80,8 @@ IF (iTargetFloor < 0) OR (iTargetFloor > C_TOP_FLOOR) OR NOT xEnable THEN
     iSpeedSp      := 0;
     eDir          := DIR_NONE;
     xAtTarget     := FALSE;
-    (* Zamanlayici ile birlikte CIKIS BAYRAGI da temizlenmelidir; aksi halde
-       bir kez olusan zaman asimi kalici kalir ve ariza reset edilemez. *)
+    (* The OUTPUT FLAG must be cleared along with the timer; otherwise a
+       timeout that fired once sticks and the fault can never be reset. *)
     tonTravel(IN := FALSE);
     xTimeout      := FALSE;
     RETURN;
@@ -91,7 +91,7 @@ diTargetMM := INT_TO_DINT(iTargetFloor) * C_FLOOR_HEIGHT_MM;
 diErrMM    := diTargetMM - diPosMM;
 diAbsErr   := ABS(diErrMM);
 
-// --- hedefe varildi mi? ----------------------------------------------------
+// --- has the target been reached? ------------------------------------------
 IF diAbsErr <= C_LEVEL_TOL_MM THEN
     xAtTarget     := TRUE;
     xMoveReq      := FALSE;
@@ -102,7 +102,7 @@ IF diAbsErr <= C_LEVEL_TOL_MM THEN
     xLeveling     := FALSE;
     tonTravel(IN := FALSE);
 
-    // fren tutma gecikmesi sonrasi surucuyu birak
+    // release the drive after the brake-apply delay
     tonBrake(IN := TRUE, PT := C_T_BRAKE);
     xBrakeRelease := NOT tonBrake.Q;
     xDriveEnable  := NOT tonBrake.Q;
@@ -112,7 +112,7 @@ END_IF
 xAtTarget := FALSE;
 tonBrake(IN := FALSE);
 
-// --- ucdaki limitler -------------------------------------------------------
+// --- the end limits --------------------------------------------------------
 IF (diErrMM > 0) AND xTopLimit THEN
     xDriveEnable := FALSE; xRunUp := FALSE; xRunDown := FALSE;
     iSpeedSp := 0; xBrakeRelease := FALSE; eDir := DIR_NONE;
@@ -124,7 +124,7 @@ IF (diErrMM < 0) AND xBotLimit THEN
     RETURN;
 END_IF
 
-// --- hiz profili -----------------------------------------------------------
+// --- speed profile ---------------------------------------------------------
 IF diAbsErr <= C_DOOR_ZONE_MM THEN
     iSpeedSp  := C_V_LEVEL_MMS;
     xLeveling := TRUE;
@@ -132,7 +132,7 @@ ELSIF diAbsErr >= C_DECEL_DIST_MM THEN
     iSpeedSp  := C_V_RATED_MMS;
     xLeveling := FALSE;
 ELSE
-    // Lineer rampa:  door-zone kenarinda C_V_LEVEL, decel mesafesinde C_V_RATED
+    // Linear ramp:  C_V_LEVEL at the door-zone edge, C_V_RATED at the decel distance
     iSpeedSp := C_V_LEVEL_MMS
               + DINT_TO_INT( ((diAbsErr - C_DOOR_ZONE_MM)
                             * INT_TO_DINT(C_V_RATED_MMS - C_V_LEVEL_MMS))
@@ -140,7 +140,7 @@ ELSE
     xLeveling := FALSE;
 END_IF
 
-// --- yon ve surucu ---------------------------------------------------------
+// --- direction and drive ---------------------------------------------------
 xDriveEnable  := TRUE;
 xBrakeRelease := TRUE;
 
@@ -150,19 +150,19 @@ ELSE
     xRunUp := FALSE; xRunDown := TRUE;   eDir := DIR_DOWN;
 END_IF
 
-// --- hareket zaman asimi ---------------------------------------------------
+// --- travel timeout --------------------------------------------------------
 tonTravel(IN := TRUE, PT := C_T_TRAVEL_MAX);
 xTimeout := tonTravel.Q;
 
 
-(*  Yeni hedef verildiginde zaman asimi sayacini sifirla  *)
+(*  Reset the timeout counter when a new target is given  *)
 METHOD ResetTimeout
 tonTravel(IN := FALSE);
 xTimeout := FALSE;
 END_METHOD
 
 
-(*  Encoder konumundan kat numarasi (en yakin kat)  *)
+(*  Floor number from the encoder position (the nearest floor)  *)
 METHOD FloorFromPos : INT
 VAR_INPUT
     diPos : DINT;
@@ -187,10 +187,10 @@ END_METHOD
 
 
 (*
-    Fren geri beslemesi denetimi: kumanda ile saha uyusmali.
-    xBrakeCmd = fren coz komutu, xBrakeFb = fren gercekten cozuldu sinyali.
-    Uyusmazlik C_T_BRAKE_FB suresince surerse TRUE doner.
-    Godot karsiligi: SoftPlc.gd -> Motion.brake_mismatch()
+    Brake feedback supervision: the command and the field must agree.
+    xBrakeCmd = brake release command, xBrakeFb = brake actually released.
+    Returns TRUE if they disagree for C_T_BRAKE_FB.
+    Godot counterpart: SoftPlc.gd -> Motion.brake_mismatch()
 *)
 METHOD BrakeMismatch : BOOL
 VAR_INPUT

@@ -1,19 +1,20 @@
 (*
     ============================================================================
-    FB_LiftCore   —   ANA DURUM MAKINESI
+    FB_LiftCore   -   THE MAIN STATE MACHINE
     ----------------------------------------------------------------------------
-    Alt bloklari orkestra eder:
-        FB_Safety        guvenlik / ariza
-        FB_CallRegistry  cagri latch + lambalar
-        FB_Dispatcher    hedef kat secimi
-        FB_DoorCtrl      kapi
-        FB_Motion        surucu referansi
+    Orchestrates the sub-blocks:
+        FB_Safety        safety / faults
+        FB_CallRegistry  call latching + lamps
+        FB_Dispatcher    target floor selection
+        FB_DoorCtrl      door
+        FB_Motion        drive reference
 
-    Durum akisi (normal):
+    The normal state flow:
         INIT -> HOMING -> IDLE -> DOOR_CLOSING -> START -> TRAVEL -> DECEL
              -> LEVEL -> ARRIVED -> DOOR_OPENING -> DOOR_OPEN -> IDLE ...
 
-    Godot karsiligi: SoftPlc.gd -> class LiftCore   (birebir ayni gecisler)
+    Godot counterpart: SoftPlc.gd -> class LiftCore   (exactly the same
+    transitions)
     ============================================================================
 *)
 FUNCTION_BLOCK FB_LiftCore
@@ -24,14 +25,14 @@ VAR_OUTPUT
     stOut : ST_LiftOutputs;
 END_VAR
 VAR
-    // --- alt bloklar --------------------------------------------------------
+    // --- sub-blocks ---------------------------------------------------------
     fbSafety : FB_Safety;
     fbCalls  : FB_CallRegistry;
     fbDisp   : FB_Dispatcher;
     fbDoor   : FB_DoorCtrl;
     fbMotion : FB_Motion;
 
-    // --- kalici veri --------------------------------------------------------
+    // --- retained data ------------------------------------------------------
     stLatch     : ST_CallSet;
     eState      : E_LiftState := LS_INIT;
     eDir        : E_Direction := DIR_NONE;
@@ -39,14 +40,14 @@ VAR
     iTargetFlr  : INT := -1;
     xHomed      : BOOL;
 
-    // --- yardimcilar --------------------------------------------------------
+    // --- helpers ------------------------------------------------------------
     tonPark     : TON;
     tonGong     : TON;
     tonStart    : TON;
     tonHb       : TON;
     tofAlarm    : TOF;
     xGongArm    : BOOL;
-    xFireParked : BOOL;   // tahliye katina varildi (yangin modu mandali)
+    xFireParked : BOOL;   // reached the recall floor (the fire mode latch)
     xOverspeed  : BOOL;
     xBrakeBad   : BOOL;
     iHb         : INT;
@@ -61,10 +62,10 @@ VAR
 END_VAR
 
 // ===========================================================================
-// 1) GUVENLIK
+// 1) SAFETY
 // ---------------------------------------------------------------------------
-// Regulator (asiri hiz) ve fren geri besleme denetimi: her ikisi de sahadan
-// gelen olcumu kumanda ile karsilastirir.
+// The governor (overspeed) and the brake feedback supervision: both compare a
+// measurement from the field against the command.
 // ===========================================================================
 xOverspeed := fbSafety.OverspeedTrip(stIn.iActSpeedMMS);
 xBrakeBad  := fbMotion.BrakeMismatch(stOut.xBrakeRelease, stIn.xBrakeFb);
@@ -88,11 +89,11 @@ fbSafety(
 );
 
 // ===========================================================================
-// 2) KONUM / KAT TAKIBI
+// 2) POSITION / FLOOR TRACKING
 // ===========================================================================
 iCurFloor := fbMotion.FloorFromPos(stIn.diPosMM);
 
-// Kat sensoru ile encoder tutarlilik kontrolu (sadece door-zone icinde)
+// Floor sensor vs encoder consistency check (inside the door zone only)
 iZoneFloor := -1;
 FOR i := 0 TO C_TOP_FLOOR DO
     IF stIn.axFloorZone[i] THEN iZoneFloor := i; END_IF
@@ -100,7 +101,7 @@ END_FOR
 xZoneMism := (iZoneFloor >= 0) AND (iZoneFloor <> iCurFloor);
 
 // ===========================================================================
-// 3) CAGRI KAYDI
+// 3) CALL REGISTRATION
 // ===========================================================================
 xClearCalls := stIn.xFireCall OR stIn.xInspection OR fbSafety.xFault;
 
@@ -112,7 +113,7 @@ fbCalls(
 );
 
 // ===========================================================================
-// 4) HEDEF SECIMI
+// 4) TARGET SELECTION
 // ===========================================================================
 fbDisp(
     iCurrentFloor := iCurFloor,
@@ -121,13 +122,13 @@ fbDisp(
 );
 
 // ===========================================================================
-// 5) ANA DURUM MAKINESI
+// 5) THE MAIN STATE MACHINE
 // ===========================================================================
 xDoorReqOpen := FALSE;
 xDoorReqCls  := FALSE;
 xServeDone   := FALSE;
 
-// --- global oncelikli gecisler ---------------------------------------------
+// --- globally prioritised transitions --------------------------------------
 IF fbSafety.xFault AND (eState <> LS_FAULT) THEN
     eState := LS_FAULT;
 ELSIF stIn.xInspection AND (eState <> LS_INSPECTION) AND NOT fbSafety.xFault THEN
@@ -153,7 +154,7 @@ CASE eState OF
         END_IF
 
     // -----------------------------------------------------------------------
-    // Konum bilinmiyor: en yakin kata surunme hiziyla git
+    // Position unknown: creep to the nearest floor
     LS_HOMING:
         xDoorReqCls := TRUE;
         IF fbDoor.xIsClosed AND stIn.xDoorLocked THEN
@@ -172,7 +173,7 @@ CASE eState OF
         IF fbDisp.xHasJob THEN
             tonPark(IN := FALSE);
             IF fbDisp.iTarget = iCurFloor THEN
-                // ayni katta cagri -> kapiyi ac
+                // a call at this floor -> open the door
                 eDir       := fbDisp.eNewDir;
                 iTargetFlr := iCurFloor;
                 xServeDone := TRUE;
@@ -195,7 +196,7 @@ CASE eState OF
     // -----------------------------------------------------------------------
     LS_DOOR_CLOSING:
         xDoorReqCls := TRUE;
-        // Asiri yuk KALKISI engeller (seyir halindeki kabini durdurmaz).
+        // Overload inhibits the START (it does not stop a travelling car).
         IF fbDoor.xIsClosed AND stIn.xDoorLocked AND NOT stIn.xOverload THEN
             tonStart(IN := TRUE, PT := C_T_START_DELAY);
             IF tonStart.Q THEN
@@ -205,7 +206,7 @@ CASE eState OF
         ELSE
             tonStart(IN := FALSE);
         END_IF
-        // kapanma sirasinda yeni bir cagri ayni kattan gelirse geri ac
+        // reopen if a new call arrives for this floor while closing
         IF stLatch.axCar[iCurFloor] OR stIn.xDoorOpenBtn THEN
             eState := LS_DOOR_OPENING;
         END_IF
@@ -224,7 +225,7 @@ CASE eState OF
     LS_TRAVEL:
         xDoorReqCls := TRUE;
 
-        // Yol uzerindeki kata ugrama karari (door-zone'a girmeden once verilir)
+        // Decide on an intermediate stop (before entering the door zone)
         IF (iZoneFloor >= 0) AND (iZoneFloor <> iTargetFlr) THEN
             IF fbDisp.StopHere(iZoneFloor, eDir) THEN
                 iTargetFlr := iZoneFloor;
@@ -256,12 +257,12 @@ CASE eState OF
     LS_ARRIVED:
         iTargetFlr := -1;
         xServeDone := TRUE;
-        // Gong burada KURULUR; calma suresi durum degisiminden bagimsiz
-        // olarak asagida sayilir (LS_ARRIVED yalnizca tek tarama surer).
+        // The gong is ARMED here; its duration is counted below independently
+        // of the state change (LS_ARRIVED lasts a single scan only).
         xGongArm := TRUE;
         tonGong(IN := FALSE);
 
-        // Bu kat icin cagrilari sil ve kapiyi ac
+        // Clear the calls for this floor and open the door
         eState := LS_DOOR_OPENING;
 
     // -----------------------------------------------------------------------
@@ -273,7 +274,7 @@ CASE eState OF
 
     // -----------------------------------------------------------------------
     LS_DOOR_OPEN:
-        // Yeni is varsa kapanmaya izin ver
+        // Allow closing if there is new work
         xDoorReqCls := fbDisp.xHasJob OR fbDoor.xDwellDone;
         IF fbDoor.eState = DS_CLOSED THEN
             eState := LS_IDLE;
@@ -294,12 +295,12 @@ CASE eState OF
         END_IF
 
     // -----------------------------------------------------------------------
-    // Yangin senaryosu: tum cagrilar silinir, tahliye katina inilir,
-    // kapi acilir ve acik kalir.
+    // Fire scenario: every call is cleared, the car travels to the recall
+    // floor, the door opens and stays open.
     LS_FIRE:
-        (* Tahliye katina varis MANDALLANIR. Aksi halde kapi acilinca hareket
-           blogu devre disi kalir, xAtTarget duser ve kumanda kapiyi yeniden
-           kapatmaya calisir (ac-kapa dongusu olusur). *)
+        (* Arrival at the recall floor is LATCHED. Otherwise, once the door
+           opens the motion block is disabled, xAtTarget drops and the
+           controller tries to close the door again (an open/close loop). *)
         IF NOT xFireParked THEN
             eDir        := DIR_DOWN;
             iTargetFlr  := C_FIRE_FLOOR;
@@ -308,7 +309,7 @@ CASE eState OF
                 xFireParked := TRUE;
             END_IF
         ELSE
-            (* tahliye katinda park: surucu serbest, kapi acik kalir *)
+            (* parked at the recall floor: drive released, door stays open *)
             iTargetFlr   := -1;
             eDir         := DIR_NONE;
             xDoorReqOpen := TRUE;
@@ -331,7 +332,7 @@ CASE eState OF
     LS_FAULT:
         iTargetFlr := -1;
         eDir       := DIR_NONE;
-        // kabin door-zone icindeyse kapiyi ac (yolcu tahliyesi)
+        // open the door if the car is in a door zone (to let people out)
         xDoorReqOpen := (iZoneFloor >= 0);
         IF NOT fbSafety.xFault THEN
             fbDoor.Reset();
@@ -341,15 +342,15 @@ CASE eState OF
 
 END_CASE
 
-// --- kata varinca cagrilari sil --------------------------------------------
+// --- clear the calls on arrival --------------------------------------------
 IF xServeDone THEN
     fbCalls.ServeFloor(iCurFloor, eDir);
 END_IF
 
 // ===========================================================================
-// 5b) GONG VE ALARM ZILI
+// 5b) GONG AND ALARM BELL
 // ===========================================================================
-// Gong LS_ARRIVED'de kurulur, C_T_GONG boyunca calar (durumdan bagimsiz).
+// The gong is armed in LS_ARRIVED and rings for C_T_GONG (state independent).
 IF xGongArm THEN
     tonGong(IN := TRUE, PT := C_T_GONG);
     stOut.xGong := NOT tonGong.Q;
@@ -360,13 +361,13 @@ ELSE
     stOut.xGong := FALSE;
 END_IF
 
-// Alarm butonu anlik (momentary) gelir; zil basildiktan sonra C_T_ALARM
-// suresince calmaya devam eder (TOF = kapanma gecikmesi).
+// The alarm button is momentary; the bell keeps ringing for C_T_ALARM after
+// it is pressed (TOF = off delay).
 tofAlarm(IN := stIn.xAlarmBtn, PT := C_T_ALARM);
 stOut.xAlarm := tofAlarm.Q;
 
 // ===========================================================================
-// 6) KAPI
+// 6) DOOR
 // ===========================================================================
 IF stLatch.axCar[iCurFloor] OR (eDir = DIR_NONE) THEN
     tDwellUse := C_T_DOOR_DWELL;
@@ -388,11 +389,11 @@ fbDoor(
 );
 
 // ===========================================================================
-// 7) HAREKET
+// 7) MOTION
 // ===========================================================================
 (*
-    Asiri yuk burada YOK: yuk sinyali kalkis kilididir (LS_DOOR_CLOSING),
-    seyir halindeki kabini aniden durdurmamalidir.
+    No overload check here: the load signal is a start inhibit
+    (LS_DOOR_CLOSING); it must not suddenly stop a travelling car.
 *)
 fbMotion(
     xEnable      := fbSafety.xRunAllow
@@ -409,7 +410,7 @@ fbMotion(
 );
 
 // ===========================================================================
-// 8) CIKISLAR
+// 8) OUTPUTS
 // ===========================================================================
 stOut.xDriveEnable  := fbMotion.xDriveEnable;
 stOut.xRunUp        := fbMotion.xRunUp;
@@ -444,7 +445,7 @@ stOut.xInspMode     := (eState = LS_INSPECTION);
 stOut.xOutOfService := fbSafety.xFault OR (eState = LS_INSPECTION) OR (eState = LS_FIRE);
 stOut.xCabinLight   := NOT fbSafety.xFault OR (fbSafety.eFault <> FLT_SAFETY_CHAIN);
 
-// Heartbeat: 100 ms'de bir artar
+// Heartbeat: increments every 100 ms
 tonHb(IN := NOT tonHb.Q, PT := T#100MS);
 IF tonHb.Q THEN
     iHb := iHb + 1;

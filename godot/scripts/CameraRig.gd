@@ -1,12 +1,12 @@
 class_name CamRig
 extends Node3D
 
-## Kamera kontrolu.
-##   Sag tik + surukle : yorunge (orbit)
-##   Orta tik + surukle: kaydirma (pan)
-##   Tekerlek          : yakinlas / uzaklas
-##   1 / 2 / 3 / 4     : dis gorunum, kabin ici, kat holu, makine dairesi
-##   F                 : kabini takip et (ac/kapa)
+## Camera control.
+##   Right drag  : orbit
+##   Middle drag : pan
+##   Wheel       : zoom in / out
+##   1 / 2 / 3 / 4 : exterior, in-car, landing, machine room
+##   F           : follow the car (toggle)
 
 enum Mode { ORBIT, INTERIOR, LOBBY, MACHINE }
 
@@ -44,12 +44,12 @@ func set_mode(m: int) -> void:
 	mode = m
 	match mode:
 		Mode.INTERIOR:
-			_look_yaw = 30.0      # kapi + kabin ici panel birlikte gorunur
+			_look_yaw = 30.0      # shows the door and the car panel together
 			_look_pitch = -6.0
 		Mode.LOBBY:
 			pass
 		Mode.MACHINE:
-			# tahrik makinesi kuyunun tepesinde: acik yuzden yakin bak
+			# the machine sits at the shaft head: look closely from the open side
 			target = Vector3(0, machine_y - 0.05, -0.30)
 			yaw = 66.0
 			pitch = -7.0
@@ -120,7 +120,7 @@ func _process(delta: float) -> void:
 func frame_all() -> void:
 	mode = Mode.ORBIT
 	follow_car = false
-	# Kuyunun acik (sag) yuzunden bak: kabin, halat ve karsi agirlik gorunur.
+	# Look from the open (right) side of the shaft: car, ropes and counterweight.
 	target = Vector3(0, LiftCfg.total_height() * 0.46, 1.0)
 	dist = LiftCfg.total_height() * 1.38
 	yaw = 68.0

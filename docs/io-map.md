@@ -1,128 +1,130 @@
-# Modbus TCP I/O Haritası
+# Modbus TCP I/O map
 
-Tek kaynak. Üç yerde birebir aynı olmalıdır:
+Single source of truth. Three places must match it exactly:
 
-- `codesys/GVL_IO.st` (başlıktaki tablo) ve `codesys/PLC_PRG.st` (dönüşüm kodu)
+- `codesys/GVL_IO.st` (the table in the header) and `codesys/PLC_PRG.st` (the
+  conversion code)
 - `godot/scripts/IoMap.gd`
-- Bu dosya
+- This file
 
-CODESYS **Modbus TCP Slave Device** eşlemesi:
+CODESYS **Modbus TCP Slave Device** mapping:
 
-| Modbus alanı | Fonksiyon kodu | PLC tarafı | Yön |
+| Modbus area | Function code | PLC side | Direction |
 |---|---|---|---|
-| Holding Registers | FC03 oku / FC16 yaz | `%IW` | Godot → PLC |
-| Input Registers | FC04 oku | `%QW` | PLC → Godot |
+| Holding Registers | FC03 read / FC16 write | `%IW` | Godot → PLC |
+| Input Registers | FC04 read | `%QW` | PLC → Godot |
 
-Godot her çevrimde (varsayılan 20 ms) önce FC16 ile 0–10 arası holding register'ları
-yazar, ardından FC04 ile 0–15 arası input register'ları okur.
+Every scan (20 ms by default) Godot first writes holding registers 0–10 with
+FC16, then reads input registers 0–15 with FC04.
 
 ---
 
 ## Godot → PLC — Holding Registers (`g_awMbIn`)
 
-| # | Ad | İçerik |
+| # | Name | Contents |
 |---|---|---|
-| 0 | `HALL_UP` | bit *n* = *n*. kat YUKARI çağrı butonu (momentary) |
-| 1 | `HALL_DOWN` | bit *n* = *n*. kat AŞAĞI çağrı butonu |
-| 2 | `CAR_CALL` | bit *n* = kabin içi *n*. kat butonu |
-| 3 | `CMD` | komut bitleri — aşağıdaki tabloya bak |
-| 4 | `FLOOR_ZONE` | bit *n* = kabin *n*. katın door-zone bölgesinde (±60 mm) |
-| 5 | `LIMITS` | limit / kilit bitleri — aşağıdaki tabloya bak |
-| 6 | `POS_MM` | mutlak encoder konumu [mm], 0–65535 |
-| 7 | `SPEED_MMS` | ölçülen kabin hızı (mutlak değer) [mm/s] |
-| 8 | `DOOR_PMIL` | kapı konumu 0–1000 (0 = tam kapalı) |
-| 9 | `LOAD_KG` | kabin yükü [kg] |
-| 10 | `HEARTBEAT` | her çevrim artar; 2 s sabit kalırsa PLC bağlantıyı kopuk sayar |
-| 11–15 | — | rezerve |
+| 0 | `HALL_UP` | bit *n* = UP call button on floor *n* (momentary) |
+| 1 | `HALL_DOWN` | bit *n* = DOWN call button on floor *n* |
+| 2 | `CAR_CALL` | bit *n* = in-car button for floor *n* |
+| 3 | `CMD` | command bits — see the table below |
+| 4 | `FLOOR_ZONE` | bit *n* = car is in the door zone of floor *n* (±60 mm) |
+| 5 | `LIMITS` | limit / lock bits — see the table below |
+| 6 | `POS_MM` | absolute encoder position [mm], 0–65535 |
+| 7 | `SPEED_MMS` | measured car speed (absolute value) [mm/s] |
+| 8 | `DOOR_PMIL` | door position 0–1000 (0 = fully closed) |
+| 9 | `LOAD_KG` | car load [kg] |
+| 10 | `HEARTBEAT` | increments every scan; if it stays constant for 2 s the PLC treats the link as lost |
+| 11–15 | — | reserved |
 
-### `CMD` (register 3) bitleri
+### `CMD` (register 3) bits
 
-| Bit | Anlam | Bit | Anlam |
+| Bit | Meaning | Bit | Meaning |
 |---|---|---|---|
-| 0 | Kapı-aç butonu | 7 | Arıza reset butonu |
-| 1 | Kapı-kapa butonu | 8 | Foto bariyer kesildi |
-| 2 | Alarm butonu | 9 | Sürücü hazır |
-| 3 | Acil stop | 10 | Sürücü arızası |
-| 4 | Aşırı yük | 11 | Revizyon YUKARI |
-| 5 | Yangın çağrısı | 12 | Revizyon AŞAĞI |
-| 6 | Revizyon modu | | |
+| 0 | Door-open button | 7 | Fault reset button |
+| 1 | Door-close button | 8 | Light curtain interrupted |
+| 2 | Alarm button | 9 | Drive ready |
+| 3 | Emergency stop | 10 | Drive fault |
+| 4 | Overload | 11 | Inspection UP |
+| 5 | Fire call | 12 | Inspection DOWN |
+| 6 | Inspection mode | | |
 
-### `LIMITS` (register 5) bitleri
+### `LIMITS` (register 5) bits
 
-| Bit | Anlam | Bit | Anlam |
+| Bit | Meaning | Bit | Meaning |
 |---|---|---|---|
-| 0 | Üst limit switch | 4 | Kat kapısı kilit zinciri kapalı |
-| 1 | Alt limit switch | 5 | Fren geri beslemesi (çözülü) |
-| 2 | Kapı tam açık limiti | 6 | Güvenlik zinciri sağlam |
-| 3 | Kapı tam kapalı limiti | 7 | Hız regülatörü sağlam |
+| 0 | Top limit switch | 4 | Landing door lock chain closed |
+| 1 | Bottom limit switch | 5 | Brake feedback (released) |
+| 2 | Door fully-open limit | 6 | Safety chain healthy |
+| 3 | Door fully-closed limit | 7 | Overspeed governor healthy |
 
-> Bit 6 ve 7 **sağlamken 1**'dir. Godot bağlantısı koparsa PLC bit 6'yı 0 kabul eder.
+> Bits 6 and 7 are **1 when healthy**. If the Godot link drops, the PLC treats
+> bit 6 as 0.
 
 ---
 
 ## PLC → Godot — Input Registers (`g_awMbOut`)
 
-| # | Ad | İçerik |
+| # | Name | Contents |
 |---|---|---|
-| 0 | `DRIVE_CMD` | b0 enable, b1 yukarı, b2 aşağı, b3 fren-çöz, b4 seviyeleme |
-| 1 | `DOOR_CMD` | b0 aç, b1 kapa, b2 nudge (yavaş zorlamalı kapama) |
-| 2 | `LAMP_HALL_UP` | bit *n* = *n*. kat yukarı çağrı lambası |
-| 3 | `LAMP_HALL_DOWN` | bit *n* = *n*. kat aşağı çağrı lambası |
-| 4 | `LAMP_CAR` | bit *n* = kabin içi *n*. kat lambası |
-| 5 | `STATUS` | durum bitleri — aşağıdaki tabloya bak |
-| 6 | `CUR_FLOOR` | bulunulan kat (0 = zemin) |
-| 7 | `TGT_FLOOR` | hedef kat; hedef yoksa 65535 (`-1`) |
-| 8 | `DIRECTION` | 0 yok, 1 yukarı, 2 aşağı |
-| 9 | `SPEED_SP` | sürücüye verilen hız referansı [mm/s] |
-| 10 | `STATE` | ana durum makinesi kodu (aşağıda) |
-| 11 | `FAULT` | arıza kodu (aşağıda) |
-| 12 | `HEARTBEAT` | PLC canlılık sayacı (100 ms'de bir artar) |
-| 13 | `DOOR_TIMER` | kapı bekleme süresinden kalan [ms] |
-| 14–15 | — | rezerve |
+| 0 | `DRIVE_CMD` | b0 enable, b1 up, b2 down, b3 brake-release, b4 levelling |
+| 1 | `DOOR_CMD` | b0 open, b1 close, b2 nudge (slow forced closing) |
+| 2 | `LAMP_HALL_UP` | bit *n* = up call lamp on floor *n* |
+| 3 | `LAMP_HALL_DOWN` | bit *n* = down call lamp on floor *n* |
+| 4 | `LAMP_CAR` | bit *n* = in-car lamp for floor *n* |
+| 5 | `STATUS` | status bits — see the table below |
+| 6 | `CUR_FLOOR` | current floor (0 = ground) |
+| 7 | `TGT_FLOOR` | target floor; 65535 (`-1`) when there is none |
+| 8 | `DIRECTION` | 0 none, 1 up, 2 down |
+| 9 | `SPEED_SP` | speed reference given to the drive [mm/s] |
+| 10 | `STATE` | main state machine code (below) |
+| 11 | `FAULT` | fault code (below) |
+| 12 | `HEARTBEAT` | PLC liveness counter (increments every 100 ms) |
+| 13 | `DOOR_TIMER` | dwell time remaining [ms] |
+| 14–15 | — | reserved |
 
-### `STATUS` (register 5) bitleri
+### `STATUS` (register 5) bits
 
-| Bit | Anlam | Bit | Anlam |
+| Bit | Meaning | Bit | Meaning |
 |---|---|---|---|
-| 0 | Hareket halinde | 6 | Revizyon modu |
-| 1 | Kapı tam açık | 7 | Servis dışı |
-| 2 | Kapı tam kapalı | 8 | Gong |
-| 3 | Aşırı yük lambası | 9 | Ok yukarı |
-| 4 | Arıza lambası | 10 | Ok aşağı |
-| 5 | Yangın modu | 11 | Kabin aydınlatması |
-| — | | 12 | Alarm zili |
+| 0 | Moving | 6 | Inspection mode |
+| 1 | Door fully open | 7 | Out of service |
+| 2 | Door fully closed | 8 | Gong |
+| 3 | Overload lamp | 9 | Up arrow |
+| 4 | Fault lamp | 10 | Down arrow |
+| 5 | Fire mode | 11 | Car lighting |
+| — | | 12 | Alarm bell |
 
 ---
 
-## Durum kodları (`STATE`)
+## State codes (`STATE`)
 
-| Kod | Durum | Kod | Durum |
+| Code | State | Code | State |
 |---|---|---|---|
-| 0 | INIT | 8 | DECEL — yavaşlama |
-| 1 | HOMING | 9 | LEVEL — seviyeleme |
-| 2 | IDLE — boşta | 10 | ARRIVED — vardı |
-| 3 | DOOR_OPENING | 11 | FAULT — arıza |
-| 4 | DOOR_OPEN — bekleme | 12 | FIRE — yangın |
-| 5 | DOOR_CLOSING | 13 | INSPECTION — revizyon |
-| 6 | START — kalkış | 14 | PARK |
-| 7 | TRAVEL — seyir | | |
+| 0 | INIT | 8 | DECEL — decelerating |
+| 1 | HOMING | 9 | LEVEL — levelling |
+| 2 | IDLE | 10 | ARRIVED |
+| 3 | DOOR_OPENING | 11 | FAULT |
+| 4 | DOOR_OPEN — dwelling | 12 | FIRE |
+| 5 | DOOR_CLOSING | 13 | INSPECTION |
+| 6 | START | 14 | PARK |
+| 7 | TRAVEL | | |
 
-## Arıza kodları (`FAULT`)
+## Fault codes (`FAULT`)
 
-| Kod | Sebep | Nasıl temizlenir |
+| Code | Cause | How to clear |
 |---|---|---|
-| 0 | Arıza yok | — |
-| 1 | Güvenlik zinciri açık / regülatör | Zinciri kapat, reset |
-| 2 | Kapı zaman aşımı (8 s) | Engeli kaldır, reset |
-| 3 | Hareket zaman aşımı (25 s) | Reset |
-| 4 | Sürücü hazır değil / sürücü arızası | Sürücüyü düzelt, reset |
-| 5 | Uç limit switch'e çarpıldı | Kabini bölgeden çıkar, reset |
-| 6 | Encoder ile kat sensörü uyuşmuyor | Konumu düzelt, reset |
-| 7 | Hareket halinde kapı kilidi açıldı | Reset |
-| 8 | Acil stop | Butonu serbest bırak, reset |
-| 9 | Fren geri beslemesi kumandayla uyuşmuyor (1 s) | Freni kurtar, reset |
-| 10 | Aşırı hız — regülatör devrede (%115, 0.3 s) | Sürücüyü kontrol et, reset |
+| 0 | No fault | — |
+| 1 | Safety chain open / governor | Close the chain, reset |
+| 2 | Door timeout (8 s) | Remove the obstruction, reset |
+| 3 | Travel timeout (25 s) | Reset |
+| 4 | Drive not ready / drive fault | Fix the drive, reset |
+| 5 | Terminal limit switch hit | Move the car out of the zone, reset |
+| 6 | Encoder and floor sensor disagree | Correct the position, reset |
+| 7 | Door lock lost while moving | Reset |
+| 8 | Emergency stop | Release the button, reset |
+| 9 | Brake feedback disagrees with the command (1 s) | Free the brake, reset |
+| 10 | Overspeed — governor tripped (115 %, 0.3 s) | Check the drive, reset |
 
-Arıza kalıcıdır. Reset yalnızca sebebi ortadan kalkmışsa kabul edilir
-(`FB_Safety.st` içindeki reset koşuluna bakınız). Arıza anında bekleyen tüm
-çağrılar silinir; kabin door-zone içindeyse kapı yolcu tahliyesi için açılır.
+Faults latch. A reset is only accepted once the cause is gone (see the reset
+condition in `FB_Safety.st`). When a fault occurs all pending calls are cleared;
+if the car is inside a door zone the door opens to let passengers out.

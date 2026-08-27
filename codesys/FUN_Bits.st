@@ -1,7 +1,7 @@
 (*
     ============================================================================
-    Bit yardimci fonksiyonlari
-    Her FUNCTION ayri bir POU olarak eklenmelidir (Add Object > POU > Function).
+    Bit helper functions
+    Each FUNCTION must be added as its own POU (Add Object > POU > Function).
     ============================================================================
 *)
 

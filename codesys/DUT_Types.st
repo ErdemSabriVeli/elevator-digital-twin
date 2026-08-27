@@ -1,42 +1,42 @@
 (*
     ============================================================================
-    DUT_Types.st   —   Asansor Digital Twin / Veri tipleri
+    DUT_Types.st   -   Elevator Digital Twin / data types
     CODESYS 3.5 SP17+  |  Structured Text
     ----------------------------------------------------------------------------
-    NOT: Bu dosyadaki her TYPE blogu, CODESYS projesinde AYRI bir DUT nesnesi
-         olarak olusturulmalidir (Application > Add Object > DUT).
-    NOT: Buradaki sayisal degerler Godot tarafinda scripts/IoMap.gd ve
-         scripts/Config.gd icinde birebir ayni tanimlanmistir. Birini
-         degistirirseniz digerini de degistirin.
+    NOTE: every TYPE block in this file must be created as a SEPARATE DUT
+          object in the CODESYS project (Application > Add Object > DUT).
+    NOTE: the numeric values here are declared identically on the Godot side in
+          scripts/IoMap.gd and scripts/Config.gd. If you change one, change the
+          other.
     ============================================================================
 *)
 
 // ---------------------------------------------------------------------------
-// Ana durum makinesi durumlari  (Godot: IoMap.State)
+// The main state machine states  (Godot: IoMap.State)
 // ---------------------------------------------------------------------------
 TYPE E_LiftState :
 (
-    LS_INIT         := 0,   // guc geldi, henuz konum bilinmiyor
-    LS_HOMING       := 1,   // referans kata inis
-    LS_IDLE         := 2,   // bosta, cagri bekliyor
+    LS_INIT         := 0,   // powered up, position not yet known
+    LS_HOMING       := 1,   // travel to the reference floor
+    LS_IDLE         := 2,   // idle, waiting for a call
     LS_DOOR_OPENING := 3,
-    LS_DOOR_OPEN    := 4,   // bekleme suresi (dwell) sayiyor
+    LS_DOOR_OPEN    := 4,   // counting the dwell time
     LS_DOOR_CLOSING := 5,
-    LS_START        := 6,   // fren cozme + surucu enable
-    LS_TRAVEL       := 7,   // nominal hizda seyir
-    LS_DECEL        := 8,   // yavaslama rampasi
-    LS_LEVEL        := 9,   // kat seviyeleme (surunme hizi)
-    LS_ARRIVED      := 10,  // durdu, fren tuttu
+    LS_START        := 6,   // brake release + drive enable
+    LS_TRAVEL       := 7,   // travelling at rated speed
+    LS_DECEL        := 8,   // deceleration ramp
+    LS_LEVEL        := 9,   // levelling at the floor (creep speed)
+    LS_ARRIVED      := 10,  // stopped, brake applied
     LS_FAULT        := 11,
-    LS_FIRE         := 12,  // yangin senaryosu
-    LS_INSPECTION   := 13,  // revizyon (kabin ustu kumanda)
-    LS_PARK         := 14   // park katina donus
+    LS_FIRE         := 12,  // fire scenario
+    LS_INSPECTION   := 13,  // inspection (car top control)
+    LS_PARK         := 14   // returning to the park floor
 ) INT;
 END_TYPE
 
 
 // ---------------------------------------------------------------------------
-// Yon  (Godot: IoMap.DIR_*)
+// Direction  (Godot: IoMap.DIR_*)
 // ---------------------------------------------------------------------------
 TYPE E_Direction :
 (
@@ -48,7 +48,7 @@ END_TYPE
 
 
 // ---------------------------------------------------------------------------
-// Kapi alt durum makinesi
+// The door sub state machine
 // ---------------------------------------------------------------------------
 TYPE E_DoorState :
 (
@@ -56,77 +56,77 @@ TYPE E_DoorState :
     DS_OPENING := 1,
     DS_OPEN    := 2,
     DS_CLOSING := 3,
-    DS_REOPEN  := 4,   // foto bariyer kesildi, geri ac
+    DS_REOPEN  := 4,   // light curtain broken, reopen
     DS_FAULT   := 5
 ) INT;
 END_TYPE
 
 
 // ---------------------------------------------------------------------------
-// Hata kodlari  (Godot: IoMap.FAULT_TEXT)
+// Fault codes  (Godot: IoMap.FAULT_TEXT)
 // ---------------------------------------------------------------------------
 TYPE E_Fault :
 (
     FLT_NONE          := 0,
-    FLT_SAFETY_CHAIN  := 1,   // guvenlik devresi acik
-    FLT_DOOR_TIMEOUT  := 2,   // kapi verilen surede kapanmadi/acilmadi
-    FLT_TRAVEL_TIMEOUT:= 3,   // kat arasi sure asildi
-    FLT_DRIVE         := 4,   // surucu hazir degil / surucu arizasi
-    FLT_LIMIT         := 5,   // ucdaki limit switch'e carpildi
-    FLT_ENCODER       := 6,   // encoder ile kat sensoru uyusmuyor
-    FLT_LOCK_LOST     := 7,   // hareket sirasinda kapi kilidi acildi
-    FLT_ESTOP         := 8,   // acil stop butonu
-    FLT_BRAKE         := 9,   // fren geri beslemesi kumandayla uyusmuyor
-    FLT_OVERSPEED     := 10   // hiz regulatoru devreye girdi
+    FLT_SAFETY_CHAIN  := 1,   // the safety chain is open
+    FLT_DOOR_TIMEOUT  := 2,   // the door did not open/close in time
+    FLT_TRAVEL_TIMEOUT:= 3,   // floor-to-floor time exceeded
+    FLT_DRIVE         := 4,   // drive not ready / drive fault
+    FLT_LIMIT         := 5,   // an end limit switch was hit
+    FLT_ENCODER       := 6,   // encoder and floor sensor disagree
+    FLT_LOCK_LOST     := 7,   // the door lock opened while moving
+    FLT_ESTOP         := 8,   // emergency stop button
+    FLT_BRAKE         := 9,   // brake feedback disagrees with the command
+    FLT_OVERSPEED     := 10   // the overspeed governor tripped
 ) INT;
 END_TYPE
 
 
 // ---------------------------------------------------------------------------
-// Cagri kayit kumesi — dispatcher bu yapinin uzerinde calisir
+// The registered call set - the dispatcher works on this structure
 // ---------------------------------------------------------------------------
 TYPE ST_CallSet :
 STRUCT
-    axUp   : ARRAY[0..15] OF BOOL;   // kat holu YUKARI cagrilari
-    axDown : ARRAY[0..15] OF BOOL;   // kat holu ASAGI cagrilari
-    axCar  : ARRAY[0..15] OF BOOL;   // kabin ici kat butonlari
+    axUp   : ARRAY[0..15] OF BOOL;   // landing UP calls
+    axDown : ARRAY[0..15] OF BOOL;   // landing DOWN calls
+    axCar  : ARRAY[0..15] OF BOOL;   // in-car floor buttons
 END_STRUCT
 END_TYPE
 
 
 // ---------------------------------------------------------------------------
-// Sahadan gelen sinyaller  (Godot fizik modeli uretir -> Modbus -> buraya)
+// Signals from the field  (produced by the Godot physics -> Modbus -> here)
 // ---------------------------------------------------------------------------
 TYPE ST_LiftInputs :
 STRUCT
-    // Butonlar (momentary)
+    // Buttons (momentary)
     stCalls        : ST_CallSet;
     xDoorOpenBtn   : BOOL;
     xDoorCloseBtn  : BOOL;
     xAlarmBtn      : BOOL;
     xFaultReset    : BOOL;
 
-    // Kuyu / kabin sensorleri
-    axFloorZone    : ARRAY[0..15] OF BOOL;  // kat seviye (door zone) bayragi
-    diPosMM        : DINT;                  // mutlak encoder konumu [mm]
-    iActSpeedMMS   : INT;                   // gercek hiz [mm/s]
-    iDoorPosPmil   : INT;                   // kapi konumu 0..1000 (0=kapali)
+    // Shaft / car sensors
+    axFloorZone    : ARRAY[0..15] OF BOOL;  // floor level (door zone) flag
+    diPosMM        : DINT;                  // absolute encoder position [mm]
+    iActSpeedMMS   : INT;                   // actual speed [mm/s]
+    iDoorPosPmil   : INT;                   // door position 0..1000 (0=closed)
     iLoadKg        : INT;
 
-    // Guvenlik zinciri ve limitler
+    // Safety chain and limits
     xTopLimit      : BOOL;
     xBotLimit      : BOOL;
     xDoorOpenLimit : BOOL;
     xDoorCloseLimit: BOOL;
-    xDoorLocked    : BOOL;   // kat kapisi kilit kontagi zinciri
-    xBrakeFb       : BOOL;   // fren geri bildirimi
-    xSafetyChain   : BOOL;   // TRUE = zincir saglam
-    xGovernorOk    : BOOL;   // hiz regulatoru saglam
+    xDoorLocked    : BOOL;   // landing door lock contact chain
+    xBrakeFb       : BOOL;   // brake feedback
+    xSafetyChain   : BOOL;   // TRUE = the chain is intact
+    xGovernorOk    : BOOL;   // the overspeed governor is healthy
 
-    // Mod secicileri
+    // Mode selectors
     xEStop         : BOOL;
     xOverload      : BOOL;
-    xObstruction   : BOOL;   // foto bariyer kesildi
+    xObstruction   : BOOL;   // the light curtain is broken
     xFireCall      : BOOL;
     xInspection    : BOOL;
     xInspUp        : BOOL;
@@ -138,11 +138,11 @@ END_TYPE
 
 
 // ---------------------------------------------------------------------------
-// PLC cikislari  (Modbus -> Godot fizik modeli + gorsel)
+// PLC outputs  (Modbus -> the Godot physics model + visuals)
 // ---------------------------------------------------------------------------
 TYPE ST_LiftOutputs :
 STRUCT
-    // Surucu
+    // Drive
     xDriveEnable  : BOOL;
     xRunUp        : BOOL;
     xRunDown      : BOOL;
@@ -150,17 +150,17 @@ STRUCT
     xLeveling     : BOOL;
     iSpeedSpMMS   : INT;
 
-    // Kapi
+    // Door
     xDoorOpen     : BOOL;
     xDoorClose    : BOOL;
-    xDoorNudge    : BOOL;   // yavas zorlamali kapama
+    xDoorNudge    : BOOL;   // slow forced closing
 
-    // Lambalar
+    // Lamps
     axLampUp      : ARRAY[0..15] OF BOOL;
     axLampDown    : ARRAY[0..15] OF BOOL;
     axLampCar     : ARRAY[0..15] OF BOOL;
 
-    // Gosterge / durum
+    // Indicator / status
     iCurrentFloor : INT;
     iTargetFloor  : INT;
     eDirection    : E_Direction;
@@ -175,9 +175,9 @@ STRUCT
     xInspMode     : BOOL;
     xOutOfService : BOOL;
     xGong         : BOOL;
-    xAlarm        : BOOL;   // alarm zili (kabin alarm butonu)
+    xAlarm        : BOOL;   // alarm bell (car alarm button)
     xCabinLight   : BOOL;
-    iDoorTimerMs  : INT;    // kalan bekleme suresi [ms]
+    iDoorTimerMs  : INT;    // remaining dwell time [ms]
     iHeartbeat    : INT;
 END_STRUCT
 END_TYPE

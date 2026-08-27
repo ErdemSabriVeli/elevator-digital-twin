@@ -10,8 +10,8 @@ config_version=5
 
 [application]
 
-config/name="Asansor Digital Twin"
-config/description="CODESYS ST kontrol mantigi + Godot 3D asansor fizik modeli (Modbus TCP)"
+config/name="Elevator Digital Twin"
+config/description="CODESYS ST control logic + a Godot 3D elevator physics model (Modbus TCP)"
 run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.4", "Forward Plus")
 

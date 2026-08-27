@@ -1,7 +1,7 @@
 class_name LiftIo
 extends RefCounted
 
-## Modbus register haritasi — codesys/GVL_IO.st ile birebir ayni.
+## Modbus register map — must match codesys/GVL_IO.st exactly.
 ##
 ## IN  = Godot -> PLC   (Holding Registers, master write, PLC %IW)
 ## OUT = PLC -> Godot   (Input Registers,   master read,  PLC %QW)
@@ -11,7 +11,7 @@ const REG_COUNT := 16
 # =============================================================================
 # Godot -> PLC   (Holding Registers)
 # =============================================================================
-const IN_HALL_UP      := 0     # bit n = n. kat YUKARI cagri butonu
+const IN_HALL_UP      := 0     # bit n = UP call button on floor n
 const IN_HALL_DOWN    := 1
 const IN_CAR_CALL     := 2
 const IN_CMD          := 3
@@ -23,7 +23,7 @@ const IN_DOOR_PMIL    := 8
 const IN_LOAD_KG      := 9
 const IN_HEARTBEAT    := 10
 
-# IN_CMD bitleri
+# IN_CMD bits
 const CMD_DOOR_OPEN   := 0
 const CMD_DOOR_CLOSE  := 1
 const CMD_ALARM       := 2
@@ -38,7 +38,7 @@ const CMD_DRIVE_FAULT := 10
 const CMD_INSP_UP     := 11
 const CMD_INSP_DOWN   := 12
 
-# IN_LIMITS bitleri
+# IN_LIMITS bits
 const LIM_TOP         := 0
 const LIM_BOTTOM      := 1
 const LIM_DOOR_OPEN   := 2
@@ -66,19 +66,19 @@ const OUT_FAULT       := 11
 const OUT_HEARTBEAT   := 12
 const OUT_DOOR_TIMER  := 13
 
-# OUT_DRIVE_CMD bitleri
+# OUT_DRIVE_CMD bits
 const DRV_ENABLE      := 0
 const DRV_UP          := 1
 const DRV_DOWN        := 2
 const DRV_BRAKE       := 3
 const DRV_LEVELING    := 4
 
-# OUT_DOOR_CMD bitleri
+# OUT_DOOR_CMD bits
 const DOOR_OPEN_CMD   := 0
 const DOOR_CLOSE_CMD  := 1
 const DOOR_NUDGE_CMD  := 2
 
-# OUT_STATUS bitleri
+# OUT_STATUS bits
 const ST_MOVING       := 0
 const ST_DOOR_OPEN    := 1
 const ST_DOOR_CLOSED  := 2
@@ -94,7 +94,7 @@ const ST_CABIN_LIGHT  := 11
 const ST_ALARM        := 12
 
 # =============================================================================
-# Enum'lar  (DUT_Types.st)
+# Enums  (DUT_Types.st)
 # =============================================================================
 const DIR_NONE := 0
 const DIR_UP   := 1
@@ -115,24 +115,24 @@ enum Fault {
 }
 
 const STATE_TEXT := {
-	0: "INIT", 1: "HOMING", 2: "BOSTA", 3: "KAPI ACILIYOR", 4: "KAPI ACIK",
-	5: "KAPI KAPANIYOR", 6: "KALKIS", 7: "SEYIR", 8: "YAVASLAMA",
-	9: "SEVIYELEME", 10: "VARDI", 11: "ARIZA", 12: "YANGIN",
-	13: "REVIZYON", 14: "PARK"
+	0: "INIT", 1: "HOMING", 2: "IDLE", 3: "DOOR OPENING", 4: "DOOR OPEN",
+	5: "DOOR CLOSING", 6: "START", 7: "TRAVEL", 8: "DECEL",
+	9: "LEVELLING", 10: "ARRIVED", 11: "FAULT", 12: "FIRE",
+	13: "INSPECTION", 14: "PARK"
 }
 
 const FAULT_TEXT := {
-	0: "-", 1: "Guvenlik zinciri acik", 2: "Kapi zaman asimi",
-	3: "Hareket zaman asimi", 4: "Surucu arizasi", 5: "Limit switch",
-	6: "Encoder / kat sensoru uyusmazligi", 7: "Kapi kilidi kayboldu",
-	8: "Acil stop", 9: "Fren geri beslemesi uyusmuyor",
-	10: "ASIRI HIZ - regulator devrede"
+	0: "-", 1: "Safety chain open", 2: "Door timeout",
+	3: "Travel timeout", 4: "Drive fault", 5: "Limit switch",
+	6: "Encoder / floor sensor mismatch", 7: "Door lock lost",
+	8: "Emergency stop", 9: "Brake feedback mismatch",
+	10: "OVERSPEED - governor tripped"
 }
 
-const DIR_TEXT := { 0: "-", 1: "YUKARI", 2: "ASAGI" }
+const DIR_TEXT := { 0: "-", 1: "UP", 2: "DOWN" }
 
 # =============================================================================
-# Bit yardimcilari  (FUN_Bits.st)
+# Bit helpers  (FUN_Bits.st)
 # =============================================================================
 static func get_bit(val: int, bit: int) -> bool:
 	if bit < 0 or bit > 15:
@@ -148,5 +148,5 @@ static func set_bit(val: int, bit: int, on: bool) -> int:
 
 static func floor_name(f: int) -> String:
 	if f == 0:
-		return "Z"
+		return "G"
 	return str(f)

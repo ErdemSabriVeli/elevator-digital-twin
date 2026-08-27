@@ -1,17 +1,17 @@
 class_name ModbusClient
 extends RefCounted
 
-## Minimal, bloklamayan Modbus TCP master.
-## Desteklenen fonksiyonlar:
+## Minimal non-blocking Modbus TCP master.
+## Supported function codes:
 ##   FC03  Read Holding Registers
 ##   FC04  Read Input Registers
 ##   FC06  Write Single Register
 ##   FC16  Write Multiple Registers
 ##
-## Kullanim:
+## Usage:
 ##   var c := ModbusClient.new()
 ##   c.open("127.0.0.1", 502)
-##   ... her karede:  c.poll()
+##   ... every frame:  c.poll()
 ##   c.queue_write(0, values)     # FC16
 ##   c.queue_read(0, 16, 4)       # FC04
 ##   while true: var r = c.pop_response(); if r == null: break; ...
@@ -40,8 +40,8 @@ var rtt_ms := 0
 
 var _sock := StreamPeerTCP.new()
 var _rx := PackedByteArray()
-var _queue: Array = []          # bekleyen istekler
-var _inflight = null            # gonderilmis, cevabi beklenen istek
+var _queue: Array = []          # pending requests
+var _inflight = null            # sent, awaiting a response
 var _sent_at := 0
 var _next_try := 0
 var _tid := 0
@@ -222,7 +222,7 @@ func _handle_frame(f: PackedByteArray) -> void:
 	stat_rx += 1
 
 	if _inflight == null or _inflight.tid != tid:
-		return   # gecikmis / eslesmeyen cevap
+		return   # late / mismatched response
 
 	var req = _inflight
 	_inflight = null
@@ -255,7 +255,7 @@ func _check_timeout() -> void:
 		return
 	if Time.get_ticks_msec() - _sent_at > RESP_TIMEOUT_MS:
 		stat_timeout += 1
-		last_error = "yanit zaman asimi (fc=%d)" % _inflight.fc
+		last_error = "response timeout (fc=%d)" % _inflight.fc
 		_inflight = null
 		_sock.disconnect_from_host()
 		_set_online(false)

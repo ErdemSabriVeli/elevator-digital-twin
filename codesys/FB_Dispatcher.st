@@ -1,18 +1,18 @@
 (*
     ============================================================================
-    FB_Dispatcher   —   Hedef kat secimi  (collective control / toplamali kumanda)
+    FB_Dispatcher   -   Target floor selection  (collective control)
     ----------------------------------------------------------------------------
-    Kural:
-      * Kabin bir yone gidiyorsa o yondeki tum cagrilari sirasiyla toplar.
-      * Yonunde is kalmayinca ters yone doner.
-      * Bosta ise en yakin cagriya gore yon secer.
-    Godot karsiligi: SoftPlc.gd -> class Dispatcher
+    The rule:
+      * While the car travels one way it collects every call in that direction.
+      * When there is nothing left that way it reverses.
+      * When idle it picks a direction from the nearest call.
+    Godot counterpart: SoftPlc.gd -> class Dispatcher
     ============================================================================
 *)
 FUNCTION_BLOCK FB_Dispatcher
 VAR_INPUT
     iCurrentFloor : INT;
-    eCurDir       : E_Direction;   // su anki servis yonu
+    eCurDir       : E_Direction;   // the current direction of service
 END_VAR
 VAR_IN_OUT
     stLatch : ST_CallSet;
@@ -31,14 +31,14 @@ xHasJob := FALSE;
 iTarget := -1;
 eNewDir := eCurDir;
 
-// 1) Mevcut yonde devam edilebiliyor mu?
+// 1) Can we keep going the current way?
 IF eCurDir = DIR_UP THEN
     iBest := THIS^.NearestAbove(iCurrentFloor);
     IF iBest >= 0 THEN
         iTarget := iBest;  eNewDir := DIR_UP;  xHasJob := TRUE;
         RETURN;
     END_IF
-    // yukarida is yok -> asagi don
+    // nothing above -> reverse downwards
     iBest := THIS^.FarthestBelow(iCurrentFloor);
     IF iBest >= 0 THEN
         iTarget := THIS^.NearestBelow(iCurrentFloor);
@@ -60,7 +60,7 @@ ELSIF eCurDir = DIR_DOWN THEN
     END_IF
 END_IF
 
-// 2) Bosta: ayni katta cagri var mi?
+// 2) Idle: is there a call at this floor?
 IF THIS^.CallAtFloor(iCurrentFloor) THEN
     iTarget := iCurrentFloor;
     eNewDir := DIR_NONE;
@@ -68,7 +68,7 @@ IF THIS^.CallAtFloor(iCurrentFloor) THEN
     RETURN;
 END_IF
 
-// 3) Bosta: en yakin cagriyi sec
+// 3) Idle: pick the nearest call
 iBest := THIS^.NearestAny(iCurrentFloor);
 IF iBest >= 0 THEN
     iTarget := iBest;
@@ -85,7 +85,7 @@ ELSE
 END_IF
 
 
-(*  Gidis yonundeyken bu katta durmali miyiz?  (seyir sirasinda sorulur)  *)
+(*  Should we stop at this floor on the way?  (asked while travelling)  *)
 METHOD StopHere : BOOL
 VAR_INPUT
     iFloor : INT;
@@ -95,7 +95,7 @@ END_VAR
 StopHere := FALSE;
 IF (iFloor < 0) OR (iFloor > C_TOP_FLOOR) THEN RETURN; END_IF
 
-// Kabin ici cagri her zaman durdurur
+// An in-car call always stops the lift
 IF stLatch.axCar[iFloor] THEN
     StopHere := TRUE;
     RETURN;
@@ -106,7 +106,7 @@ CASE eDir OF
         IF stLatch.axUp[iFloor] THEN
             StopHere := TRUE;
         ELSIF stLatch.axDown[iFloor] AND NOT THIS^.AnyAbove(iFloor) THEN
-            StopHere := TRUE;   // en ust cagri, ters yon icin de dur
+            StopHere := TRUE;   // topmost call: stop for the reverse too
         END_IF
 
     DIR_DOWN:
@@ -218,7 +218,7 @@ END_FOR
 END_METHOD
 
 
-(*  Yon farketmeksizin en yakin cagri  *)
+(*  The nearest call, in either direction  *)
 METHOD NearestAny : INT
 VAR_INPUT
     iFloor : INT;
@@ -240,7 +240,7 @@ ELSIF iDn < 0 THEN
 ELSE
     d := (iUp - iFloor) - (iFloor - iDn);
     IF d <= 0 THEN
-        NearestAny := iUp;    // esitlikte yukari onceligi
+        NearestAny := iUp;    // up wins a tie
     ELSE
         NearestAny := iDn;
     END_IF

@@ -1,8 +1,8 @@
 class_name LiftHud
 extends CanvasLayer
 
-## Operator arayuzu: durum paneli, canli Modbus register tablosu,
-## cagri butonlari ve ariza enjeksiyon anahtarlari.
+## Operator UI: status panel, live Modbus register table, call buttons and
+## fault injection switches.
 
 signal btn_pressed(key: String)
 signal sw_toggled(name: String, value: bool)
@@ -101,7 +101,7 @@ func _build_status_panel() -> void:
 
 func _build_register_panel() -> void:
 	var vb := _panel(Control.PRESET_TOP_RIGHT, Vector2(-320, 14), Vector2(306, 0))
-	_title(vb, "MODBUS REGISTER  (canli)")
+	_title(vb, "MODBUS REGISTERS  (live)")
 	_regs = Label.new()
 	_regs.add_theme_font_size_override("font_size", FONT_S)
 	_regs.add_theme_color_override("font_color", Color(0.72, 0.85, 0.72))
@@ -129,8 +129,8 @@ func _build_control_panel() -> void:
 	vb.add_theme_constant_override("separation", 4)
 	sc.add_child(vb)
 
-	# --- PLC secimi ---------------------------------------------------------
-	_title(vb, "KONTROL KAYNAGI")
+	# --- PLC source ---------------------------------------------------------
+	_title(vb, "CONTROL SOURCE")
 	var hb := HBoxContainer.new()
 	vb.add_child(hb)
 	_btn_soft = _mk_button(hb, "SoftPLC", func(): plc_mode_requested.emit(PlcLink.Mode.SOFT))
@@ -148,34 +148,34 @@ func _build_control_panel() -> void:
 	_port_edit.custom_minimum_size = Vector2(52, 0)
 	_port_edit.add_theme_font_size_override("font_size", FONT_S)
 	hb2.add_child(_port_edit)
-	_mk_button(hb2, "Baglan", func():
+	_mk_button(hb2, "Connect", func():
 		connect_requested.emit(_host_edit.text, int(_port_edit.text)))
 
 	_sep(vb)
 
-	# --- kat cagrilari ------------------------------------------------------
-	_title(vb, "KAT HOLU CAGRILARI")
+	# --- hall calls ------------------------------------------------------
+	_title(vb, "HALL CALLS")
 	for f in range(LiftCfg.TOP_FLOOR, -1, -1):
 		var row := HBoxContainer.new()
 		vb.add_child(row)
 		var l := Label.new()
-		l.text = "Kat %s" % LiftIo.floor_name(f)
+		l.text = "Floor %s" % LiftIo.floor_name(f)
 		l.custom_minimum_size = Vector2(52, 0)
 		l.add_theme_font_size_override("font_size", FONT_S)
 		row.add_child(l)
 		if f < LiftCfg.TOP_FLOOR:
-			_mk_button(row, "^ yukari", _emit_btn.bind("hall_up_%d" % f), 88)
+			_mk_button(row, "^ up", _emit_btn.bind("hall_up_%d" % f), 88)
 		else:
 			_spacer(row, 88)
 		if f > 0:
-			_mk_button(row, "v asagi", _emit_btn.bind("hall_down_%d" % f), 88)
+			_mk_button(row, "v down", _emit_btn.bind("hall_down_%d" % f), 88)
 		else:
 			_spacer(row, 88)
 
 	_sep(vb)
 
-	# --- kabin ici ----------------------------------------------------------
-	_title(vb, "KABIN ICI")
+	# --- car panel ----------------------------------------------------------
+	_title(vb, "CAR PANEL")
 	var grid := GridContainer.new()
 	grid.columns = 3
 	vb.add_child(grid)
@@ -184,41 +184,41 @@ func _build_control_panel() -> void:
 
 	var hb3 := HBoxContainer.new()
 	vb.add_child(hb3)
-	_mk_button(hb3, "Kapi AC", _emit_btn.bind("door_open"), 82)
-	_mk_button(hb3, "Kapi KAPA", _emit_btn.bind("door_close"), 82)
+	_mk_button(hb3, "Door OPEN", _emit_btn.bind("door_open"), 82)
+	_mk_button(hb3, "Door CLOSE", _emit_btn.bind("door_close"), 82)
 	_mk_button(hb3, "Alarm", _emit_btn.bind("alarm"), 82)
 
 	_sep(vb)
 
-	# --- ariza / mod --------------------------------------------------------
-	_title(vb, "ARIZA VE MOD ENJEKSIYONU")
-	_mk_switch(vb, "estop", "Acil stop (E)")
-	_mk_switch(vb, "safety", "Guvenlik zinciri KOPUK")
-	_mk_switch(vb, "drive", "Surucu arizasi")
-	_mk_switch(vb, "fire", "Yangin modu")
-	_mk_switch(vb, "inspection", "Revizyon modu")
-	_mk_switch(vb, "obstruction", "Foto bariyer surekli kesik")
-	_mk_switch(vb, "slip", "Halat kaymasi (encoder)")
-	_mk_switch(vb, "brake", "Fren takili kaldi")
-	_mk_switch(vb, "overspeed", "Surucu kacagi (asiri hiz)")
-	_mk_switch(vb, "jam", "Kabin sikisti")
+	# --- faults / modes --------------------------------------------------------
+	_title(vb, "FAULT & MODE INJECTION")
+	_mk_switch(vb, "estop", "Emergency stop (E)")
+	_mk_switch(vb, "safety", "Safety chain BROKEN")
+	_mk_switch(vb, "drive", "Drive fault")
+	_mk_switch(vb, "fire", "Fire mode")
+	_mk_switch(vb, "inspection", "Inspection mode")
+	_mk_switch(vb, "obstruction", "Light curtain always blocked")
+	_mk_switch(vb, "slip", "Rope slip (encoder)")
+	_mk_switch(vb, "brake", "Brake stuck")
+	_mk_switch(vb, "overspeed", "Drive runaway (overspeed)")
+	_mk_switch(vb, "jam", "Car jammed")
 
 	var hb4 := HBoxContainer.new()
 	vb.add_child(hb4)
-	_mk_button(hb4, "Yolcu gecti (darbe)", _emit_btn.bind("obstruct"), 128)
-	_mk_button(hb4, "ARIZA RESET", _emit_btn.bind("reset"), 118)
+	_mk_button(hb4, "Passenger passed (pulse)", _emit_btn.bind("obstruct"), 128)
+	_mk_button(hb4, "FAULT RESET", _emit_btn.bind("reset"), 118)
 
 	var hb5 := HBoxContainer.new()
 	vb.add_child(hb5)
-	_mk_button(hb5, "Revizyon ^", _emit_btn.bind("insp_up"), 118)
-	_mk_button(hb5, "Revizyon v", _emit_btn.bind("insp_down"), 118)
+	_mk_button(hb5, "Inspection ^", _emit_btn.bind("insp_up"), 118)
+	_mk_button(hb5, "Inspection v", _emit_btn.bind("insp_down"), 118)
 
 	_sep(vb)
 
-	# --- yuk ----------------------------------------------------------------
+	# --- load ----------------------------------------------------------------
 	_load_lbl = Label.new()
 	_load_lbl.add_theme_font_size_override("font_size", FONT_S)
-	_load_lbl.text = "Kabin yuku: 75 kg"
+	_load_lbl.text = "Car load: 75 kg"
 	vb.add_child(_load_lbl)
 	var sl := HSlider.new()
 	sl.min_value = 0
@@ -227,26 +227,26 @@ func _build_control_panel() -> void:
 	sl.value = 75
 	sl.custom_minimum_size = Vector2(260, 18)
 	sl.value_changed.connect(func(v):
-		_load_lbl.text = "Kabin yuku: %d kg   %s" % [int(v),
-				"(ASIRI YUK)" if int(v) > LiftCfg.LOAD_OVER_KG else ""]
+		_load_lbl.text = "Car load: %d kg   %s" % [int(v),
+				"(OVERLOAD)" if int(v) > LiftCfg.LOAD_OVER_KG else ""]
 		load_changed.emit(int(v)))
 	vb.add_child(sl)
 
 	_sep(vb)
 
-	# --- kamera -------------------------------------------------------------
-	_title(vb, "KAMERA")
+	# --- camera -------------------------------------------------------------
+	_title(vb, "CAMERA")
 	var hb6 := HBoxContainer.new()
 	vb.add_child(hb6)
-	_mk_button(hb6, "Dis", func(): cam_requested.emit(CamRig.Mode.ORBIT), 60)
-	_mk_button(hb6, "Kabin", func(): cam_requested.emit(CamRig.Mode.INTERIOR), 60)
-	_mk_button(hb6, "Hol", func(): cam_requested.emit(CamRig.Mode.LOBBY), 60)
-	_mk_button(hb6, "Makine", func(): cam_requested.emit(CamRig.Mode.MACHINE), 68)
+	_mk_button(hb6, "Exterior", func(): cam_requested.emit(CamRig.Mode.ORBIT), 60)
+	_mk_button(hb6, "Car", func(): cam_requested.emit(CamRig.Mode.INTERIOR), 60)
+	_mk_button(hb6, "Landing", func(): cam_requested.emit(CamRig.Mode.LOBBY), 60)
+	_mk_button(hb6, "Machine", func(): cam_requested.emit(CamRig.Mode.MACHINE), 68)
 
 	var hb7 := HBoxContainer.new()
 	vb.add_child(hb7)
 	var lf := Label.new()
-	lf.text = "Hol kati:"
+	lf.text = "Landing floor:"
 	lf.add_theme_font_size_override("font_size", FONT_S)
 	hb7.add_child(lf)
 	for f in range(LiftCfg.FLOOR_COUNT):
@@ -255,9 +255,9 @@ func _build_control_panel() -> void:
 
 func _build_help() -> void:
 	var l := Label.new()
-	l.text = "Sag tik: dondur  |  Tekerlek: zoom  |  Orta tik: kaydir  |  " \
-		+ "1-4: kamera  |  F: kabini takip  |  F1: PLC kaynagi  |  F2: paneller  |  " \
-		+ "3D butonlara sol tik"
+	l.text = "Right-drag: orbit  |  Wheel: zoom  |  Middle-drag: pan  |  " \
+		+ "1-4: camera  |  F: follow car  |  F1: PLC source  |  F2: panels  |  " \
+		+ "left-click the 3D buttons"
 	l.add_theme_font_size_override("font_size", FONT_S)
 	l.add_theme_color_override("font_color", Color(0.62, 0.66, 0.72))
 	l.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
@@ -311,10 +311,10 @@ func toggle_visible() -> void:
 
 
 # =============================================================================
-# CANLI GUNCELLEME
+# LIVE UPDATE
 # =============================================================================
-## Arayuz 60 Hz'de guncellenmeye gerek duymaz; metin uretimi (ozellikle
-## register tablosu) her karede yapilinca bosuna CPU ve cop uretimi olur.
+## The UI does not need to update at 60 Hz; building the text (especially the
+## register table) every frame is wasted CPU and garbage.
 const UI_HZ := 15.0
 var _ui_acc := 999.0
 
@@ -327,17 +327,17 @@ func update_view(plant: LiftPlant, link: PlcLink,
 		return
 	_ui_acc = 0.0
 
-	# --- baglanti -----------------------------------------------------------
+	# --- link -----------------------------------------------------------
 	var col := Color(0.35, 0.95, 0.45)
 	var head := ""
 	if link.mode == PlcLink.Mode.SOFT:
-		head = "● SoftPLC  (ST kodunun Godot ikizi)"
+		head = "● SoftPLC  (Godot twin of the ST code)"
 		col = Color(0.45, 0.75, 1.0)
 	elif link.mb.online:
-		head = "● CODESYS BAGLI  %s:%d   rtt %d ms" % [link.host, link.port, link.mb.rtt_ms]
+		head = "● CODESYS CONNECTED  %s:%d   rtt %d ms" % [link.host, link.port, link.mb.rtt_ms]
 	else:
-		head = "● CODESYS YOK  %s:%d %s" % [link.host, link.port,
-				"→ SoftPLC yedegi" if link.using_fallback else ""]
+		head = "● CODESYS OFFLINE  %s:%d %s" % [link.host, link.port,
+				"→ SoftPLC fallback" if link.using_fallback else ""]
 		col = Color(1.0, 0.55, 0.30)
 	_conn.text = head
 	_conn.add_theme_color_override("font_color", col)
@@ -345,7 +345,7 @@ func update_view(plant: LiftPlant, link: PlcLink,
 	_btn_soft.disabled = link.mode == PlcLink.Mode.SOFT
 	_btn_modbus.disabled = link.mode == PlcLink.Mode.MODBUS
 
-	# --- durum --------------------------------------------------------------
+	# --- status --------------------------------------------------------------
 	var st: int = regs_out[LiftIo.OUT_STATE]
 	var cur: int = regs_out[LiftIo.OUT_CUR_FLOOR]
 	var tgt: int = regs_out[LiftIo.OUT_TGT_FLOOR]
@@ -355,36 +355,36 @@ func update_view(plant: LiftPlant, link: PlcLink,
 	var tgt_txt := "-" if tgt > LiftCfg.TOP_FLOOR else LiftIo.floor_name(tgt)
 
 	var lines := []
-	lines.append("Durum      : %s" % LiftIo.STATE_TEXT.get(st, str(st)))
-	lines.append("Kat        : %s      Hedef: %s" % [LiftIo.floor_name(cur), tgt_txt])
-	lines.append("Yon        : %s" % LiftIo.DIR_TEXT.get(dir, "-"))
-	lines.append("Hiz        : %4d mm/s  (ref %d)" % [
+	lines.append("State      : %s" % LiftIo.STATE_TEXT.get(st, str(st)))
+	lines.append("Floor      : %s      Target: %s" % [LiftIo.floor_name(cur), tgt_txt])
+	lines.append("Direction  : %s" % LiftIo.DIR_TEXT.get(dir, "-"))
+	lines.append("Speed      : %4d mm/s  (ref %d)" % [
 			int(absf(plant.speed_mms)), regs_out[LiftIo.OUT_SPEED_SP]])
-	lines.append("Konum      : %6.0f mm  (%.2f m)" % [plant.pos_mm, plant.pos_mm * 0.001])
-	lines.append("Kapi       : %3d %%   %s" % [int(plant.door_pos * 100.0),
-			"BEKLEME %.1f s" % (regs_out[LiftIo.OUT_DOOR_TIMER] / 1000.0)
+	lines.append("Position   : %6.0f mm  (%.2f m)" % [plant.pos_mm, plant.pos_mm * 0.001])
+	lines.append("Door       : %3d %%   %s" % [int(plant.door_pos * 100.0),
+			"DWELL %.1f s" % (regs_out[LiftIo.OUT_DOOR_TIMER] / 1000.0)
 			if regs_out[LiftIo.OUT_DOOR_TIMER] > 0 else ""])
-	lines.append("Yuk        : %d kg %s" % [plant.load_kg,
-			"ASIRI YUK" if LiftIo.get_bit(status_bits, LiftIo.ST_OVERLOAD) else ""])
-	lines.append("Fren       : %s     Surucu: %s" % [
-			"TUTUYOR" if plant.brake_engaged else "COZULDU",
+	lines.append("Load       : %d kg %s" % [plant.load_kg,
+			"OVERLOAD" if LiftIo.get_bit(status_bits, LiftIo.ST_OVERLOAD) else ""])
+	lines.append("Brake      : %s     Drive: %s" % [
+			"HOLDING" if plant.brake_engaged else "RELEASED",
 			"ENABLE" if plant.c_drive_enable else "off"])
-	lines.append("Sefer      : %d      Yol: %.1f m" % [
+	lines.append("Trips      : %d      Distance: %.1f m" % [
 			plant.trip_count, plant.travel_distance_mm * 0.001])
 	_status.text = "\n".join(lines)
 
 	var flt: int = regs_out[LiftIo.OUT_FAULT]
 	if flt != 0:
-		_fault.text = "ARIZA %d: %s   (RESET ile silinir)" % [flt,
+		_fault.text = "FAULT %d: %s   (clear with RESET)" % [flt,
 				LiftIo.FAULT_TEXT.get(flt, "?")]
 	elif LiftIo.get_bit(status_bits, LiftIo.ST_INSPECTION):
-		_fault.text = "REVIZYON MODU"
+		_fault.text = "INSPECTION MODE"
 	elif LiftIo.get_bit(status_bits, LiftIo.ST_FIRE):
-		_fault.text = "YANGIN MODU - tahliye kati"
+		_fault.text = "FIRE MODE - evacuation floor"
 	else:
 		_fault.text = ""
 
-	# --- register tablosu ---------------------------------------------------
+	# --- register table ---------------------------------------------------
 	var names_in := ["HALL_UP", "HALL_DOWN", "CAR_CALL", "CMD", "FLOOR_ZONE",
 			"LIMITS", "POS_MM", "SPEED", "DOOR_PMIL", "LOAD_KG", "HB"]
 	var names_out := ["DRIVE_CMD", "DOOR_CMD", "LAMP_UP", "LAMP_DN", "LAMP_CAR",

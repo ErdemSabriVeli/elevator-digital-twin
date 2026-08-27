@@ -1,87 +1,89 @@
-# Asansör Dijital İkiz — CODESYS + Godot
+# Elevator Digital Twin — CODESYS + Godot
 
-[![testler](https://github.com/ErdemSabriVeli/elevator-digital-twin/actions/workflows/tests.yml/badge.svg)](https://github.com/ErdemSabriVeli/elevator-digital-twin/actions/workflows/tests.yml)
-[![lisans: MIT](https://img.shields.io/badge/lisans-MIT-blue.svg)](LICENSE)
+[![tests](https://github.com/ErdemSabriVeli/elevator-digital-twin/actions/workflows/tests.yml/badge.svg)](https://github.com/ErdemSabriVeli/elevator-digital-twin/actions/workflows/tests.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Godot 4.4+](https://img.shields.io/badge/Godot-4.4%2B-478cbf.svg)](https://godotengine.org)
 [![CODESYS 3.5](https://img.shields.io/badge/CODESYS-3.5%20SP17%2B-e2001a.svg)](https://www.codesys.com)
 
-6 katlı bir asansörün dijital ikizi. **Kontrol mantığı CODESYS'te Structured Text ile**,
-**tesis (kabin, kapı, kuyu, sensörler) Godot 4'te 3B olarak** modellenmiştir. İkisi
-**Modbus TCP** üzerinden gerçek bir PLC–saha ilişkisi gibi konuşur.
+A digital twin of a six-floor elevator. The **control logic runs in CODESYS as
+Structured Text**; the **plant (car, doors, shaft, sensors) is modelled in 3D in
+Godot 4**. The two talk over **Modbus TCP**, exactly like a real PLC talks to
+field devices.
 
-Aynı kontrol mantığı ayrıca GDScript'e birebir çevrilmiştir (`SoftPlc.gd`), böylece
-CODESYS kurulu olmadan da proje tam çalışır ve iki uygulama karşılaştırılabilir.
+The same control logic is also transliterated to GDScript (`SoftPlc.gd`), so the
+project runs end to end without CODESYS installed — and lets you compare the two
+implementations against each other.
 
 ```
 ┌────────────────────────┐   Holding Reg (FC16)   ┌────────────────────────┐
-│  GODOT 4  — tesis      │  ───────────────────>  │  CODESYS — kontrol     │
-│  kabin/kapı fiziği     │   butonlar, encoder,   │  FB_LiftCore (ST)      │
-│  kat sensörleri        │   kat sensörü, limit   │  FSM + dispatcher      │
-│  3B görselleştirme     │  <───────────────────  │  kapı + hareket + emn. │
-│  operatör arayüzü      │   Input Reg (FC04)     │                        │
-└────────────────────────┘   sürücü/kapı komutu   └────────────────────────┘
-                             lamba, gösterge
+│  GODOT 4  — plant      │  ───────────────────>  │  CODESYS — control     │
+│  car / door physics    │   buttons, encoder,    │  FB_LiftCore (ST)      │
+│  floor sensors         │   floor sensor, limits │  FSM + dispatcher      │
+│  3D visualisation      │  <───────────────────  │  door + motion + safety│
+│  operator UI           │   Input Reg (FC04)     │                        │
+└────────────────────────┘   drive / door cmds    └────────────────────────┘
+                             lamps, indicators
 ```
 
 ---
 
-## Ekran görüntüleri
+## Screenshots
 
-Tüm geometri, dokular ve sesler çalışma anında kodla üretilir — depoda tek bir
-model, doku veya ses dosyası yoktur.
+All geometry, textures and sounds are generated in code at run time — there is
+not a single model, texture or audio file in this repository.
 
 | | |
 |---|---|
-| ![Genel bakış](docs/images/01-genel-bakis.png) | ![Kat holü](docs/images/02-kat-holu.png) |
-| 6 katlı kuyu kesiti, kabin, karşı ağırlık ve halatlar | Paslanmaz söve, kat kapıları, kırmızı nokta-matris gösterge |
-| ![Kabin paneli](docs/images/03-kabin-paneli.png) | ![Tahrik makinesi](docs/images/04-tahrik-makinesi.png) |
-| COP: braille'li yuvarlak butonlar, çağrı kayıtlıyken amber halka | Dişlisiz PM motor, kanallı tahrik kasnağı, fren kaliperi, 5 halat |
+| ![Overview](docs/images/01-overview.png) | ![Landing](docs/images/02-landing.png) |
+| Six-floor shaft cutaway with car, counterweight and ropes | Stainless jamb, landing doors, red dot-matrix indicator |
+| ![Car panel](docs/images/03-car-panel.png) | ![Traction machine](docs/images/04-traction-machine.png) |
+| COP: round buttons with braille, amber halo when a call is registered | Gearless PM motor, grooved traction sheave, brake caliper, 5 ropes |
 
-Sol üstteki panel canlı PLC durumunu, sağdaki tablo ise **her iki yöndeki
-Modbus register'larını** anlık gösterir — yani ekranda gördüğünüz her şey
-gerçek kumanda verisidir.
+The panel on the left shows live PLC state; the table on the right shows the
+**Modbus registers in both directions** in real time — everything on screen is
+actual control data.
 
 ---
 
-## Hızlı başlangıç (CODESYS olmadan)
+## Quick start (without CODESYS)
 
-Godot 4.4+ gerekir, başka bağımlılık yoktur. (Proje 4.4.1 üzerinde geliştirildi
-ve test edildi; CI de bu sürümü kullanır.)
+Godot 4.4+ required, no other dependencies. (Developed and tested on 4.4.1; CI
+uses the same version.)
 
-**Projeyi açmak:** Godot açılış ekranında **Import** → bu depodaki
-`godot/project.godot` dosyasını seç → **Import & Edit**. Ya da doğrudan:
+**Opening the project:** in the Godot project manager choose **Import** → pick
+`godot/project.godot` from this repository → **Import & Edit**. Or directly:
 
 ```bash
 godot --editor --path godot
 ```
 
-> **Editörde sahne boş görünür — bu normaldir.** `Main.tscn` içinde tek bir
-> `Node3D` vardır; kuyu, kabin, kat holleri, tahrik makinesi, halatlar ve
-> arayüz dahil **her şey çalışma anında kodla üretilir** (`Main.gd → _ready()`).
-> Asansörü görmek için **F5** ile çalıştırın.
+> **The scene looks empty in the editor — that is expected.** `Main.tscn`
+> contains a single `Node3D`; the shaft, car, landings, traction machine, ropes
+> and the UI are **all built in code at run time** (`Main.gd → _ready()`).
+> Press **F5** to see the elevator.
 
-Editörü hiç açmadan doğrudan çalıştırmak için:
+To run it without opening the editor at all:
 
 ```bash
 godot --path godot
 ```
 
-Proje **SoftPLC** modunda açılır — ST kodunun GDScript ikizi çalışır. Kat
-holündeki ya da kabin içindeki 3B butonlara sol tıklayın, ya da soldaki
-panelden çağrı verin. **F12** ekran görüntüsü alır.
+The project starts in **SoftPLC** mode — the GDScript twin of the ST code. Click
+the 3D buttons in a landing or inside the car, or use the panel on the left.
+**F12** takes a screenshot.
 
-## CODESYS'e bağlama
+## Connecting CODESYS
 
-`docs/codesys-kurulum.md` adım adım anlatır. Özet:
+`docs/codesys-setup.md` walks through it step by step. In short:
 
-1. CODESYS'te yeni proje → POU'ları `codesys/*.st` dosyalarından oluştur.
-2. Cihaza **Ethernet → Modbus TCP Slave Device** ekle (port 502).
-3. `GVL_IO` içindeki `%IW0` / `%QW0` adreslerini kendi projendekilerle eşle.
-4. PLC'yi indir ve çalıştır.
-5. Godot'ta HUD → **KONTROL KAYNAGI → CODESYS** → IP yaz → **Baglan**.
-   (F1 tuşu SoftPLC ↔ CODESYS arasında geçiş yapar.)
+1. New CODESYS project → create the POUs from the `codesys/*.st` files.
+2. Add **Ethernet → Modbus TCP Slave Device** to the device (port 502).
+3. Match the `%IW0` / `%QW0` addresses in `GVL_IO` with the ones in your project.
+4. Download to the PLC and start it.
+5. In Godot: HUD → **CONTROL SOURCE → CODESYS** → enter the IP → **Connect**.
+   (F1 toggles between SoftPLC and CODESYS.)
 
-Komut satırından doğrudan bağlı başlatmak için:
+To start already connected from the command line:
 
 ```bash
 godot --path godot -- --plc modbus --host 192.168.1.10 --port 502
@@ -89,341 +91,351 @@ godot --path godot -- --plc modbus --host 192.168.1.10 --port 502
 
 ---
 
-## Klasörler
+## Layout
 
-| Yol | İçerik |
+| Path | Contents |
 |---|---|
-| `codesys/` | Structured Text kaynakları (kontrol mantığının aslı) |
-| `godot/scripts/` | 3B tesis modeli, fizik, Modbus istemcisi, ST ikizi |
-| `godot/tests/` | ST denetimi, eşleşme, geometri, senaryo ve protokol testleri |
-| `docs/` | I/O haritası, CODESYS kurulumu, test senaryoları |
+| `codesys/` | Structured Text sources (the authoritative control logic) |
+| `godot/scripts/` | 3D plant model, physics, Modbus client, ST twin |
+| `godot/tests/` | ST lint, parity, geometry, scenario and protocol tests |
+| `docs/` | I/O map, CODESYS setup, demo scenarios |
 
-### CODESYS POU'ları
+### CODESYS POUs
 
-| Dosya | Görev |
+| File | Role |
 |---|---|
-| `DUT_Types.st` | Enum ve struct tanımları |
-| `GVL_Config.st` | Tesis parametreleri (kat sayısı, hız, süreler) |
-| `GVL_IO.st` | Modbus register alanı + uygulama struct'ları |
+| `DUT_Types.st` | Enum and struct definitions |
+| `GVL_Config.st` | Plant parameters (floor count, speeds, timings) |
+| `GVL_IO.st` | Modbus register area + application structs |
 | `FUN_Bits.st` | `F_GetBit` / `F_SetBit` |
-| `FB_CallRegistry.st` | Çağrı latch'i, lamba çıkışları |
-| `FB_Dispatcher.st` | Toplamalı kumanda — hedef kat seçimi |
-| `FB_DoorCtrl.st` | Kapı alt durum makinesi, foto bariyer, nudge |
-| `FB_Motion.st` | Hız profili, seviyeleme, kat takibi |
-| `FB_Safety.st` | Güvenlik zinciri, arıza kodları, reset |
-| `FB_LiftCore.st` | Ana durum makinesi (15 durum) |
-| `PLC_PRG.st` | Modbus ↔ struct dönüşümü + çevrim |
+| `FB_CallRegistry.st` | Call latching, lamp outputs |
+| `FB_Dispatcher.st` | Collective control — target floor selection |
+| `FB_DoorCtrl.st` | Door sub-state machine, light curtain, nudge |
+| `FB_Motion.st` | Speed profile, levelling, floor tracking |
+| `FB_Safety.st` | Safety chain, fault codes, reset |
+| `FB_LiftCore.st` | Main state machine (15 states) |
+| `PLC_PRG.st` | Modbus ↔ struct conversion + scan |
 
-### Godot script'leri
+### Godot scripts
 
-| Dosya | Görev |
+| File | Role |
 |---|---|
-| `Config.gd` | Ortak sabitler — `GVL_Config.st` ile birebir aynı olmalı |
-| `IoMap.gd` | Register/bit haritası — `GVL_IO.st` ile aynı |
-| `SoftPlc.gd` | ST kodunun birebir GDScript ikizi |
-| `Plant.gd` | Fizik modeli: kabin, kapı, encoder, sensörler |
-| `ModbusTCPClient.gd` | Bloklamayan Modbus TCP master (FC3/4/6/16) |
-| `PlcLink.gd` | SoftPLC ↔ CODESYS seçici, kopukluk yedeği |
-| `ShaftBuilder.gd` | Kuyu, kat holleri, kat kapıları, tahrik makinesi |
-| `CarRig.gd` | Kabin, kabin kapısı, kumanda paneli |
-| `MaterialLib.gd` | Malzemeler, prosedürel dokular, mesh/yay yardımcıları |
-| `LedDisplay.gd` | Kırmızı nokta-matris gösterge (kabin + her kat) |
-| `Button3D.gd` | Tıklanabilir ışıklı buton |
-| `CameraRig.gd` | Dış / kabin içi / hol / makine kameraları |
-| `Hud.gd` | Durum paneli, canlı register tablosu, arıza enjeksiyonu |
-| `AudioRig.gd` | Prosedürel ses sentezi (makine, kapı, gong, alarm, fren) |
+| `Config.gd` | Shared constants — must match `GVL_Config.st` exactly |
+| `IoMap.gd` | Register / bit map — must match `GVL_IO.st` |
+| `SoftPlc.gd` | Line-by-line GDScript twin of the ST code |
+| `Plant.gd` | Physics model: car, door, encoder, sensors |
+| `ModbusTCPClient.gd` | Non-blocking Modbus TCP master (FC3/4/6/16) |
+| `PlcLink.gd` | SoftPLC ↔ CODESYS selector, fallback on disconnect |
+| `ShaftBuilder.gd` | Shaft, landings, landing doors, traction machine |
+| `CarRig.gd` | Car, car door, control panel |
+| `MaterialLib.gd` | Materials, procedural textures, mesh/arc helpers |
+| `LedDisplay.gd` | Red dot-matrix indicator (car + every landing) |
+| `Button3D.gd` | Clickable illuminated button |
+| `CameraRig.gd` | Exterior / in-car / landing / machine cameras |
+| `Hud.gd` | Status panel, live register table, fault injection |
+| `AudioRig.gd` | Procedural audio synthesis (machine, door, gong, alarm, brake) |
 
 ---
 
-## Modellenen davranış
+## Modelled behaviour
 
-**Kumanda:** toplamalı (collective) kumanda — gidiş yönündeki çağrılar sırayla
-toplanır, yön bitince ters yöne dönülür. Boşta 30 s sonra park katına iner.
+**Dispatching:** collective control — calls in the direction of travel are
+served in order, then the car reverses. After 30 s idle it returns to the
+parking floor.
 
-**Hareket:** VVVF sürücü referansı üretilir. Nominal 1600 mm/s, 2000 mm kala
-yavaşlama rampası, door-zone içinde 150 mm/s sürünme hızı, ±8 mm toleransla durma.
+**Motion:** the controller produces a VVVF drive reference. Rated speed
+1600 mm/s, deceleration ramp starting 2000 mm out, 150 mm/s creep inside the
+door zone, stopping within ±8 mm.
 
-Tesis tarafında sürücü **jerk sınırlı (S-eğrisi)** bir profil uygular: ivme bir
-anda değil, sınırlı bir hızla (1300 mm/s³) değişir. Gerçek asansörlerde
-kalkış ve durușun yumuşak hissedilmesinin sebebi budur. İki mühendislik
-kuplajı bunun sonucudur ve ikisi de kodda açıkça belirtilmiştir:
+On the plant side the drive applies a **jerk-limited (S-curve)** profile:
+acceleration does not change instantly but at a bounded rate (1300 mm/s³). This
+is why starts and stops feel smooth in a real elevator. Two engineering
+couplings follow from it, both called out in the code:
 
-- Yavaşlama mesafesi (`C_DECEL_DIST_MM`) sürücünün jerk sınırlı durma
-  mesafesine göre boyutlandırılır — 1400 mm ile kabin katı 152 mm aşıyordu.
-- Jerk sınırı bir **konfor** kısıtıdır; sürünme hızında gevşetilir, yoksa
-  kabin kat seviyesi etrafında salınır.
+- The deceleration distance (`C_DECEL_DIST_MM`) is sized against the drive's
+  jerk-limited stopping distance — at 1400 mm the car overshot the floor by
+  152 mm.
+- The jerk limit is a **comfort** constraint; it is relaxed at creep speed,
+  otherwise the car oscillates around floor level.
 
-Fren bir sürtünme elemanı olarak modellenir: hızı sıfıra çeker ve orada
-bırakır, kabini ters yöne süremez. Fren komuta 150 ms gecikmeyle tepki verir.
+The brake is modelled as a friction element: it pulls speed to zero and holds
+it there, and can never drive the car backwards. It responds to the command
+with a 150 ms delay.
 
-**Kapı:** açılma → bekleme (kabin çağrısında 4 s, hol çağrısında 3 s) → kapanma.
-Foto bariyer veya kapı-aç butonu kapıyı geri açar; aşırı yük kapıyı açık tutar.
-15 s sonra "nudge" (yavaş zorlamalı kapama) devreye girer. Kanatlar kapalı/açık
-uçlarda yavaşlayan, ortada hızlanan bir hız zarfıyla sürülür — gerçek kapı
-operatörü de mekaniği korumak ve çarpmayı önlemek için böyle davranır.
+**Doors:** open → dwell (4 s on a car call, 3 s on a hall call) → close. The
+light curtain or the door-open button reopens them; overload holds them open.
+After 15 s "nudge" (slow forced closing) kicks in. The panels are driven with a
+velocity envelope that slows near both ends and speeds up in the middle — a real
+door operator does the same to protect the mechanism and avoid slamming.
 
-**Güvenlik:** acil stop, güvenlik zinciri, uç limit switch'leri, kapı kilidi
-kaybı, kapı/hareket zaman aşımı, encoder–kat sensörü uyuşmazlığı ve ayrıca:
+**Safety:** emergency stop, safety chain, terminal limit switches, loss of door
+lock, door / travel timeout, encoder–floor-sensor mismatch, plus:
 
-- **Aşırı hız (regülatör):** gerçek hız anma hızının %115'ini (1840 mm/s)
-  0.3 s boyunca aşarsa devreye girer. Kuyudaki mekanik regülatör modelinin
-  mantık tarafındaki karşılığıdır.
-- **Fren geri beslemesi:** PLC'nin fren-çöz komutu ile sahadan gelen fren
-  kontağı 1 s boyunca uyuşmazsa arıza verir. Tesis modelinde fren komuta
-  150 ms gecikmeyle tepki verir, yani denetim gerçek bir gecikmeyi tolere eder.
+- **Overspeed (governor):** trips when actual speed exceeds 115 % of rated
+  (1840 mm/s) for 0.3 s. This is the logic-side counterpart of the mechanical
+  governor modelled in the shaft.
+- **Brake feedback:** faults when the PLC's brake-release command and the field
+  brake contact disagree for 1 s. In the plant the brake responds with a 150 ms
+  delay, so the supervision tolerates a realistic lag.
 
-Arıza kalıcıdır, sebebi ortadan kalkmadan reset kabul edilmez.
+Faults latch; a reset is only accepted once the cause is gone.
 
-**Alarm zili:** kabin alarm butonu anlık gelir; zil basıldıktan sonra 2 s daha
-çalar (ST tarafında `TOF`, ikizde eşdeğer sınıf). Butonun halkası çaldığı
-sürece yanar.
+**Alarm bell:** the car alarm button is momentary; the bell keeps ringing for
+2 s after the press (`TOF` on the ST side, an equivalent class in the twin). The
+button halo stays lit while it rings.
 
-**Özel modlar:** yangın (tüm çağrılar silinir, tahliye katına inilir, kapı açık kalır),
-revizyon (kabin üstü tut-bas kumandası, 300 mm/s), aşırı yük (kalkış kilidi).
+**Special modes:** fire (all calls cleared, car sent to the evacuation floor,
+doors held open), inspection (car-top hold-to-run, 300 mm/s), overload (start
+inhibit).
 
-**Bağlantı gözetimi:** Godot her çevrimde heartbeat gönderir. 2 s güncellenmezse PLC
-güvenlik zincirini açık sayar ve asansörü hareket ettirmez.
+**Link supervision:** Godot sends a heartbeat every scan. If it stops changing
+for 2 s the PLC treats the safety chain as open and refuses to move the car.
 
 ---
 
-## Görsel model
+## Visual model
 
-Kabin ve kat cepheleri modern bir asansöre göre modellenmiştir; tüm geometri ve
-dokular çalışma anında kod ile üretilir (harici varlık dosyası yoktur).
+Car and landing fronts are modelled after a modern elevator; all geometry and
+textures are generated in code at run time (no external asset files).
 
-**Malzemeler** — `MaterialLib.gd`
-- Fırçalanmış paslanmaz (satine inox): metalik 0.96, prosedürel *roughness*
-  dokusuyla ince tek yönlü fırça izi. Kabin duvarları, kapılar, söveler, COP plakası.
-- Ayna: kabin arka duvarında, hafif yeşil cam tonu, kabin içi yansıma probuyla
-  gerçek yansıma.
-- Koyu granit kabin zemini ve açık mermer kat holü zemini: benek/damar dokusu
-  prosedürel üretilir.
+**Materials** — `MaterialLib.gd`
+- Brushed stainless (satin inox): metallic 0.96, with a procedural *roughness*
+  texture giving a fine unidirectional brush grain. Car walls, doors, jambs, COP
+  plate.
+- Mirror: on the car's rear wall, faint green glass tint, with real reflections
+  from an in-car reflection probe.
+- Dark granite car floor and light marble landing floor: speckle / vein textures
+  are generated procedurally.
 
-**Kabin içi**
-- 900 mm'de yuvarlak paslanmaz küpeşte (arka + iki yan), paslanmaz süpürgelik
-- Beyaz asma tavan, 4 gömme spot (her biri kendi ışığıyla) ve çevre ışık bandı
-- Yan duvarlarda derz çizgili paneller
+**Car interior**
+- Round stainless handrail at 900 mm (rear + both sides), stainless skirting
+- White false ceiling, 4 recessed downlights (each with its own light source)
+  and a perimeter light band
+- Side walls with reveal-lined panels
 
-**COP (kabin kumanda paneli)** — sağ ön dönüş duvarında
-- Üstte kırmızı nokta-matris gösterge, altında aşırı yük ikaz şeridi
-- İki kolon yuvarlak buton (aşağıdan yukarı Z→5), her birinin yanında braille
-- Kapı aç / kapı kapa / alarm, anahtarlı şalter, acil telefon ızgarası
-- Kabin kapasite plakası (630 kg / 8 kişi)
+**COP (car operating panel)** — on the right front return wall
+- Red dot-matrix indicator at the top, overload warning strip beneath it
+- Two columns of round buttons (bottom-up G→5), braille beside each
+- Door open / door close / alarm, key switch, emergency phone grille
+- Car capacity plate (630 kg / 8 persons)
 
-**Butonlar** — `Button3D.gd`
-- Paslanmaz bilezik + hafif gömülü fırçalanmış kapak + kazınmış rakam
-- Çağrı kaydedildiğinde kapağı çevreleyen hale **amber** yanar (PLC lamba biti)
-- Fareyle üzerine gelince soğuk gri ön izleme, tıklamada basılma hareketi
+**Buttons** — `Button3D.gd`
+- Stainless bezel + slightly recessed brushed cap + engraved numeral
+- When a call is registered the halo around the cap lights **amber** (driven by
+  the PLC lamp bit)
+- Cool grey preview on hover, press animation on click
 
-**Göstergeler** — `LedDisplay.gd`
-- Gerçek nokta-matris: 5×7 karakter fontu, sol tarafta yön oku
-- Doku çalışma anında çizilir (yanan LED parlak kırmızı, sönük LED koyu kırmızı),
-  yalnızca içerik değiştiğinde yeniden üretilir
-- Arızada yanıp söner, yangında `F`, revizyonda `R` gösterir
+**Indicators** — `LedDisplay.gd`
+- True dot matrix: 5×7 character font with a direction arrow on the left
+- The texture is drawn at run time (lit LED bright red, unlit LED dark red) and
+  regenerated only when the content changes
+- Blinks on a fault, shows `F` in fire mode and `R` in inspection
 
-**Kat holü**
-- Paslanmaz söve, iki kanatlı satine kapı, paslanmaz eşik ve süpürgelik
-- Kapı üstünde LED gösterge, yanında kat numarası plakası
-- Çağrı istasyonu: paslanmaz plaka üzerinde iki yuvarlak buton
-- Gömme tavan armatürü
+**Landing**
+- Stainless jamb, two-panel satin doors, stainless sill and skirting
+- LED indicator above the door, floor number plate beside it
+- Call station: two round buttons on a stainless plate
+- Recessed ceiling luminaire
 
-**Tahrik sistemi (motor + halat)** — `ShaftBuilder.gd`
+**Traction system (motor + ropes)** — `ShaftBuilder.gd`
 
-Makine dairesiz (MRL) yerleşim; tüm askı zinciri modellenmiştir:
+Machine-room-less (MRL) arrangement; the whole suspension chain is modelled:
 
-| Bileşen | Model |
+| Component | Model |
 |---|---|
-| Tahrik makinesi | Dişlisiz sabit mıknatıslı (PM) disk motor, 16 radyal soğutma kanadı, klemens kutusu |
-| Tahrik kasnağı | R = 320 mm, her halat için ayrı kanal (yanaklarla ayrılmış), 6 gövde deliği |
-| Fren | Çelik fren diski + iki elektromanyetik kaliper; her kaliperde diskin iki yüzüne basan balata |
-| Enkoder | Mil ucunda, konum geri beslemesi |
-| Saptırma makarası | R = 190 mm; kasnaktan inen hattı karşı ağırlık hattına taşır |
-| Askı halatları | 5 paralel çelik halat, 36 mm kanal aralığı, 1:1 askı |
-| Halat kancaları | Kabin ve karşı ağırlık üstünde plaka + her halat için baskı yayı ve soket |
-| Hız regülatörü | Kuyu arka köşesinde kapalı halat ilmeği, kuyu dibinde gergi makarası, kabine bağlı kavrama |
-| Karşı ağırlık | Ağırlık dilimleri + askı çerçevesi + kılavuz rayları |
+| Traction machine | Gearless permanent-magnet (PM) disc motor, 16 radial cooling fins, terminal box |
+| Traction sheave | R = 320 mm, a separate groove per rope (separated by flanges), 6 web holes |
+| Brake | Steel brake disc + two electromagnetic calipers; each caliper presses a pad on both disc faces |
+| Encoder | On the shaft end, position feedback |
+| Deflector sheave | R = 190 mm; carries the line coming off the sheave to the counterweight line |
+| Suspension ropes | 5 parallel steel ropes, 36 mm groove pitch, 1:1 roping |
+| Rope hitches | Plate on top of car and counterweight + a compression spring and socket per rope |
+| Overspeed governor | Closed rope loop in the rear shaft corner, tension pulley in the pit, clamp linked to the car |
+| Counterweight | Weight slabs + suspension frame + guide rails |
 
-Halat güzergâhı geometrik olarak tutarlıdır (bkz. `tests/geometry_test.gd`):
+The rope routing is geometrically consistent (see `tests/geometry_test.gd`):
 
 ```
-kabin kancası (z=0) ─ düşey ─▶ tahrik kasnağı üzerinde 180° sarım
+car hitch (z=0) ─ vertical ─▶ 180° wrap over the traction sheave
                                       │
-                            düşey (z=-0.64)
+                            vertical (z=-0.64)
                                       ▼
-                        saptırma makarası üzerinde 180° sarım
+                        180° wrap over the deflector sheave
                                       │
-                            düşey (z=-1.02) ─▶ karşı ağırlık kancası
+                            vertical (z=-1.02) ─▶ counterweight hitch
 ```
 
-Kasnaklar üzerindeki sarımlar sabit geometridir; her karede yalnızca düşey
-kolların boyu güncellenir. Kasnak, fren diski, saptırma makarası, regülatör ve
-gergi makarası halat hızıyla (her biri kendi yarıçapına göre) döner. Fren
-balataları PLC'nin **fren-çöz** çıkışına göre diskten ayrılır.
+The wraps over the sheaves are static geometry; only the length of the vertical
+runs is updated each frame. The sheave, brake disc, deflector, governor and
+tension pulley all rotate with rope speed (each scaled by its own radius). The
+brake pads retract from the disc according to the PLC's **brake-release** output.
 
-**Ses** — `AudioRig.gd`
+**Audio** — `AudioRig.gd`
 
-Tüm sesler çalışma anında sentezlenir (harici ses dosyası yoktur) ve
-**PLC çıkışlarından sürülür** — yani duyduğunuz şey kumandanın gerçek
-durumudur, animasyon süslemesi değil. Kaynaklar konumludur:
+Every sound is synthesised at run time (no external audio files) and **driven
+from PLC outputs** — what you hear is the actual controller state, not
+animation garnish. The sources are positional:
 
-| Ses | Kaynak | Sürüldüğü sinyal |
+| Sound | Source | Driving signal |
 |---|---|---|
-| Makine uğultusu | kuyu tepesi | hız (perde ve seviye hıza göre) |
-| Kapı motoru | kabin | kapı aç/kapa komutu |
-| Varış gongu | kabin | `STATUS.gong` biti |
-| Alarm zili | kabin | `STATUS.alarm` biti |
-| Fren tıkı | kabin | fren durumu değişimi |
+| Machine hum | shaft head | speed (pitch and level follow it) |
+| Door motor | car | door open/close command |
+| Arrival gong | car | `STATUS.gong` bit |
+| Alarm bell | car | `STATUS.alarm` bit |
+| Brake click | car | brake state change |
 
-**Aydınlatma / render**
-- ACES tonemap, ekran uzayı yansıması (SSR), SSAO, ölçülü glow
-- Kabin içinde `ReflectionProbe` (interior): ayna ve paslanmaz yüzeyler kuyuyu
-  değil kabinin kendisini yansıtır
+**Lighting / rendering**
+- ACES tonemap, screen-space reflections (SSR), SSAO, restrained glow
+- A `ReflectionProbe` (interior) inside the car so the mirror and stainless
+  surfaces reflect the car itself rather than the shaft
 
 ---
 
-## Kontroller
+## Controls
 
-| Tuş / fare | İşlev |
+| Key / mouse | Action |
 |---|---|
-| Sol tık | 3B butona bas |
-| Sağ tık + sürükle | Kamerayı döndür |
-| Orta tık + sürükle | Kaydır |
-| Tekerlek | Yakınlaş / uzaklaş |
-| `1` `2` `3` `4` | Dış / kabin içi / kat holü / makine kamerası |
-| `F` | Kabini takip et |
-| `Home` | Tüm binayı çerçevele |
+| Left click | Press a 3D button |
+| Right click + drag | Orbit the camera |
+| Middle click + drag | Pan |
+| Wheel | Zoom in / out |
+| `1` `2` `3` `4` | Exterior / in-car / landing / machine camera |
+| `F` | Follow the car |
+| `Home` | Frame the whole building |
 | `F1` | SoftPLC ↔ CODESYS |
-| `F2` | Panelleri gizle/göster |
-| `E` / `R` | Acil stop / arıza reset |
-| `O` / `C` | Kapı aç / kapa |
-| `PgUp` / `PgDn` | Revizyon modunda yukarı / aşağı |
-| `F12` | Ekran görüntüsü (`%APPDATA%\Godot\app_userdata\...`) |
+| `F2` | Show / hide panels |
+| `E` / `R` | Emergency stop / fault reset |
+| `O` / `C` | Door open / close |
+| `PgUp` / `PgDn` | Up / down in inspection mode |
+| `F12` | Screenshot (`%APPDATA%\Godot\app_userdata\...`) |
 
-### Arıza enjeksiyonu (sol paneldeki anahtarlar)
+### Fault injection (switches in the left panel)
 
-Her biri tesis modelinde gerçek bir bozulmayı taklit eder; PLC'nin bunu
-kendi girişlerinden tespit etmesi beklenir.
+Each one imitates a real failure in the plant model; the PLC is expected to
+detect it from its own inputs.
 
-| Anahtar | Ne olur | Beklenen arıza |
+| Switch | What happens | Expected fault |
 |---|---|---|
-| Acil stop | Güvenlik zinciri kesilir | 8 — Acil stop |
-| Güvenlik zinciri KOPUK | Zincir kontağı açılır | 1 — Güvenlik zinciri |
-| Sürücü arızası | Sürücü hazır sinyali düşer | 4 — Sürücü |
-| Fren takılı kaldı | Çözme emrine rağmen fren kontağı gelmez | 9 — Fren geri beslemesi |
-| Sürücü kaçağı | Gerçek hız referansın %145'ine çıkar | 10 — Aşırı hız |
-| Kabin sıkıştı | Sürücü çalışır ama konum ilerlemez | 3 — Hareket zaman aşımı |
-| Halat kayması | Encoder gerçek konumdan sapar | 6 — Encoder uyuşmazlığı |
-| Foto bariyer | Kapı sürekli engelli | (arıza değil, kapı geri açılır) |
+| Emergency stop | Safety chain is cut | 8 — Emergency stop |
+| Safety chain BROKEN | Chain contact opens | 1 — Safety chain |
+| Drive fault | Drive-ready signal drops | 4 — Drive |
+| Brake stuck | No brake contact despite the release command | 9 — Brake feedback |
+| Drive runaway | Actual speed climbs to 145 % of the reference | 10 — Overspeed |
+| Car jammed | Drive runs but position does not advance | 3 — Travel timeout |
+| Rope slip | Encoder drifts from the true position | 6 — Encoder mismatch |
+| Light curtain | Door permanently obstructed | (not a fault — the door reopens) |
 
 ---
 
-## Performans
+## Performance
 
-Sahne 1600×900'de ~138 FPS çalışır. Ölçüm için yerleşik profil modu vardır:
+The scene runs at ~138 FPS at 1600×900. There is a built-in profiling mode:
 
 ```bash
 godot --path godot -- --profile 8
 ```
 
-Çizim çağrısı, üçgen, düğüm/kaynak sayısı, video belleği ve
-`_physics_process` içindeki dört aşamanın ayrı ayrı süresini basar.
+It prints draw calls, triangles, node/resource counts, video memory and the
+time spent in each of the four stages of `_physics_process` separately.
 
-Ölçüme dayalı yapılan iyileştirmeler:
+Measurement-driven improvements:
 
-| | Önce | Sonra |
+| | Before | After |
 |---|---|---|
-| Çizim çağrısı | 2907 | 711 |
-| Üçgen | 804 k | 512 k |
-| Script süresi (kare) | 1.21 ms | 0.52 ms |
-| Video belleği | 480 MB | 425 MB |
+| Draw calls | 2907 | 711 |
+| Triangles | 804 k | 512 k |
+| Script time (frame) | 1.21 ms | 0.52 ms |
+| Video memory | 480 MB | 425 MB |
 
-- **Mesh paylaşımı:** aynı ölçüdeki mesh'ler tek kaynak üzerinden paylaşılır.
-  Yüzlerce halat yayı parçası ve tekrar eden detay için kritik. Sonradan
-  değiştirilen mesh'ler (dinamik halat kolları) paylaşımdan muaf tutulur —
-  bir taraftaki 5 halat zaten aynı boyda olduğu için tek mesh'i paylaşır ve
-  karede 10 değil 2 güncelleme yapılır.
-- **Gölge ayıklama:** 26 cm'den küçük parçalar gölge üretmez. Gölge geçişi
-  geometriyi birkaç kez daha çizdiği için çizim çağrılarının çoğu buydu.
-  Yönlü ışığın gölge mesafesi bina yüksekliğine (42 m) daraltıldı.
-- **Değişim korumaları:** her karede çağrılan `set_light` / `set_overload` /
-  `set_panel_leds` yalnızca durum değiştiğinde materyal günceller.
-- **Arayüz hız sınırı:** HUD 60 Hz yerine 15 Hz'de güncellenir (register
-  tablosunun metin üretimi kare başına yapılmaya değmez).
+- **Mesh sharing:** meshes of identical size share a single resource. Critical
+  for the hundreds of rope-arc segments and repeated details. Meshes that are
+  mutated afterwards (the dynamic rope runs) are excluded from sharing — the
+  5 ropes on one side are always the same length anyway, so they share one mesh
+  and the frame updates 2 meshes instead of 10.
+- **Shadow culling:** parts smaller than 26 cm cast no shadow. The shadow pass
+  redraws the geometry several times, which is where most draw calls came from.
+  The directional light's shadow distance was tightened to the building height
+  (42 m).
+- **Change guards:** `set_light` / `set_overload` / `set_panel_leds` are called
+  every frame but now only touch materials when the state actually changes.
+- **UI rate limit:** the HUD updates at 15 Hz instead of 60 Hz (building the
+  register table's text is not worth doing per frame).
 
 ---
 
-## Testler
+## Tests
 
-Beşi de headless çalışır, Godot dışında bağımlılık yoktur.
+All five run headless with no dependency beyond Godot.
 
 ```bash
 godot --headless --path godot --script res://tests/st_lint_test.gd
 ```
 
-**ST statik denetimi.** `codesys/*.st` CODESYS olmadan derlenemez; bu denetim
-derleyicinin yakalayacağı hataların büyük bölümünü kaynak üzerinden yakalar:
-blok dengesi (`IF`/`CASE`/`FOR`/`VAR_*`/`METHOD`), tanımsız `C_*` sabitleri,
-tanımsız enum literalleri, `stIn.`/`stOut.` içinde olmayan struct alanları,
-var olmayan FB metodu çağrıları ve FB çağrılarında yanlış parametre adları.
+**ST static lint.** `codesys/*.st` cannot be compiled without CODESYS; this
+check catches most of what the compiler would, straight from the source: block
+balance (`IF`/`CASE`/`FOR`/`VAR_*`/`METHOD`), undefined `C_*` constants,
+undefined enum literals, struct fields that do not exist in `stIn.`/`stOut.`,
+calls to FB methods that do not exist, and wrong parameter names in FB calls.
 
-Ne yapmaz: tip denetimi, ifade doğruluğu, gerçek derleme — bunlar ancak
-CODESYS'te derleyerek doğrulanır.
+What it does not do: type checking, expression correctness, real compilation —
+those can only be verified by compiling in CODESYS.
 
 ```bash
 godot --headless --path godot --script res://tests/parity_test.gd
 ```
 
-**ST ↔ GDScript eşleşme testi.** Bu mimarinin en büyük riski, kontrol
-mantığının iki kopyasının (`codesys/*.st` ve `godot/scripts/*.gd`) sessizce
-birbirinden kaymasıdır — kaydığında ikiz artık gerçek PLC'yi temsil etmez ve
-bunu fark etmek çok zordur. Test ST kaynağını ayrıştırıp karşılaştırır:
-`GVL_Config.st` sabitleri (27), `DUT_Types.st` enum'ları (35 değer) ve
-`PLC_PRG.st` içindeki bit indisleri (32 bit).
+**ST ↔ GDScript parity test.** The biggest risk in this architecture is the two
+copies of the control logic (`codesys/*.st` and `godot/scripts/*.gd`) silently
+drifting apart — once they do, the twin no longer represents the real PLC and
+that is very hard to notice. The test parses the ST source and compares:
+`GVL_Config.st` constants (27), `DUT_Types.st` enums (35 values) and the bit
+indices in `PLC_PRG.st` (32 bits).
 
 ```bash
 godot --headless --path godot --script res://tests/sim_test.gd
 ```
 
-11 senaryo: kabin çağrısı ve seviyeleme, toplamalı kumanda, acil stop + reset,
-aşırı yük kalkış kilidi, yangın tahliyesi (kapının açık kaldığı regresyon dahil),
-foto bariyer, hareket zaman aşımı ve arızadan dönüş, fren geri beslemesi,
-aşırı hız, gong süresi + alarm zili, sürüş kalitesi (jerk ve ivme sınırları
-ölçülerek doğrulanır).
+11 scenarios: car call and levelling, collective control, emergency stop +
+reset, overload start inhibit, fire evacuation (including a regression for the
+doors staying open), light curtain, travel timeout and recovery from a fault,
+brake feedback, overspeed, gong duration + alarm bell, and ride quality (jerk
+and acceleration limits verified by measurement).
 
 ```bash
 godot --headless --path godot --script res://tests/modbus_test.gd
 ```
 
-Modbus TCP protokol testi: gerçek bir TCP slave ayağa kaldırılır, FC16 yazma ve
-FC04 okuma çerçeveleri uçtan uca doğrulanır.
+Modbus TCP protocol test: a real TCP slave is brought up and FC16 write / FC04
+read frames are verified end to end.
 
 ```bash
 godot --headless --path godot --script res://tests/geometry_test.gd
 ```
 
-Mekanik yerleşim doğrulaması — ekran görüntüsünden fark edilmesi zor
-çarpışmaları sayısal olarak yakalar: halat hatlarının kabin/karşı ağırlık
-merkezleriyle hizası, kabin en üst kattayken tahrik kasnağı ve saptırma
-makarası ile kabin üstü korkuluğu arasındaki boşluk, karşı ağırlığın kuyu dibi
-tamponu ve tepe sınırı, kabin–karşı ağırlık yatay ayrımı, regülatör halatının
-kabin ve kapı bölgesinden uzaklığı.
+Mechanical layout verification — catches collisions that are hard to spot in a
+screenshot, numerically: alignment of the rope lines with the car and
+counterweight centres, clearance between the traction sheave / deflector and the
+car-top guard rail with the car at the top floor, the counterweight's pit buffer
+and upper limit, car–counterweight horizontal separation, and the governor
+rope's distance from the car and the door zone.
 
 ---
 
-## Parametre değiştirme
+## Changing parameters
 
-Kat sayısı, kat yüksekliği, hızlar ve süreler **iki yerde birden** tanımlıdır ve
-aynı olmak zorundadır:
+Floor count, floor height, speeds and timings are defined in **two places** and
+must stay identical:
 
 - `codesys/GVL_Config.st`
-- `godot/scripts/Config.gd` (üst bölüm)
+- `godot/scripts/Config.gd` (upper section)
 
-Birini değiştirip diğerini unutursanız dijital ikiz gerçek PLC'den farklı davranır —
-`Config.gd` içindeki uyarı notu bunun içindir. Kat sayısını değiştirdiğinizde 3B sahne
-kendini otomatik olarak yeniden üretir; register haritası 16 kata kadar destekler.
+Change one and forget the other and the digital twin behaves differently from
+the real PLC — that is what the warning note in `Config.gd` is for. When you
+change the floor count the 3D scene rebuilds itself automatically; the register
+map supports up to 16 floors.
 
-Değişikliği yaptıktan sonra eşleşme testini çalıştırın; iki taraf birbirinden
-kaymışsa hangi sabitin uyuşmadığını tek tek söyler:
+After a change, run the parity test; if the two sides have drifted it tells you
+exactly which constant does not match:
 
 ```bash
 godot --headless --path godot --script res://tests/parity_test.gd
@@ -431,21 +443,21 @@ godot --headless --path godot --script res://tests/parity_test.gd
 
 ---
 
-## Bilinen sınırlar
+## Known limitations
 
-Dürüst olmak gerekirse projenin doğrulanmamış tek yeri şurası:
+To be straight about it, this is the part of the project that is not verified:
 
-- **ST kodu hiç derlenmedi.** `codesys/*.st` dosyaları CODESYS olmadan
-  derlenemez; bu depoda yalnızca statik denetimden (`st_lint_test.gd`) geçer.
-  Denetim sözdizimini, sembol çözümlemesini ve FB arayüzlerini doğrular ama
-  **tip denetimi yapmaz**. İlk derlemede uyarı çıkarsa şaşırmayın.
-- Tek kabinli sistem — grup kumandası (birden fazla asansörün ortak
-  dispatcher'ı) modellenmemiştir.
-- Kabin yükü kalkış kilidini etkiler, ancak motor torkunu/ivmelenmeyi
-  etkilemez.
+- **The ST code has never been compiled.** `codesys/*.st` cannot be built
+  without CODESYS; in this repository it only passes the static lint
+  (`st_lint_test.gd`). The lint verifies syntax, symbol resolution and FB
+  interfaces but **does no type checking**. Do not be surprised by warnings on
+  the first build.
+- Single-car system — group control (a shared dispatcher across several
+  elevators) is not modelled.
+- Car load affects the start inhibit but not motor torque or acceleration.
 
 ---
 
-## Lisans
+## License
 
-MIT — bkz. [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).

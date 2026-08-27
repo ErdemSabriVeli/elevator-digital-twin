@@ -1,19 +1,20 @@
 (*
     ============================================================================
-    FB_CallRegistry   —   Cagri kaydi (latch) ve lamba surme
+    FB_CallRegistry   -   Call latching and lamp driving
     ----------------------------------------------------------------------------
-    Butonlar momentary gelir; bu blok cagriyi tutar, servis edilince siler.
-    Godot karsiligi: SoftPlc.gd -> class CallRegistry
+    The buttons are momentary; this block latches the call and clears it once
+    it has been served.
+    Godot counterpart: SoftPlc.gd -> class CallRegistry
     ============================================================================
 *)
 FUNCTION_BLOCK FB_CallRegistry
 VAR_INPUT
-    stBtn       : ST_CallSet;     // sahadan gelen anlik buton durumu
-    xClearAll   : BOOL;           // yangin / revizyon / ariza -> tum cagrilari sil
-    xEnable     : BOOL;           // FALSE ise yeni cagri kabul etme
+    stBtn       : ST_CallSet;     // the momentary button state from the field
+    xClearAll   : BOOL;           // fire / inspection / fault -> clear every call
+    xEnable     : BOOL;           // if FALSE, accept no new calls
 END_VAR
 VAR_IN_OUT
-    stLatch     : ST_CallSet;     // kalici cagri kaydi (dispatcher ile paylasilir)
+    stLatch     : ST_CallSet;     // the latched call set (shared with the dispatcher)
 END_VAR
 VAR_OUTPUT
     xAnyCall    : BOOL;
@@ -40,15 +41,15 @@ iCallCount := 0;
 
 FOR i := 0 TO C_TOP_FLOOR DO
 
-    // --- yeni cagrilari yakala -------------------------------------------
+    // --- latch new calls -------------------------------------------------
     IF xEnable THEN
-        // en ust katta yukari, en alt katta asagi butonu yoktur
+        // there is no up button on the top floor, no down on the bottom
         IF stBtn.axUp[i]   AND (i < C_TOP_FLOOR) THEN stLatch.axUp[i]   := TRUE; END_IF
         IF stBtn.axDown[i] AND (i > 0)           THEN stLatch.axDown[i] := TRUE; END_IF
         IF stBtn.axCar[i]                        THEN stLatch.axCar[i]  := TRUE; END_IF
     END_IF
 
-    // --- sayim -------------------------------------------------------------
+    // --- count -------------------------------------------------------------
     IF stLatch.axUp[i]   THEN iCallCount := iCallCount + 1; END_IF
     IF stLatch.axDown[i] THEN iCallCount := iCallCount + 1; END_IF
     IF stLatch.axCar[i]  THEN iCallCount := iCallCount + 1; END_IF
@@ -60,8 +61,8 @@ xAnyCall := (iCallCount > 0);
 
 (*
     ---------------------------------------------------------------------------
-    METHOD ServeFloor : Bir katta durulduğunda o kata ait cagrilari siler.
-    eDir = hangi yonun cagrisi servis edildi (DIR_NONE ise ikisi de silinir)
+    METHOD ServeFloor : clears the calls for a floor once the car stops there.
+    eDir = which direction was served (DIR_NONE clears both)
     ---------------------------------------------------------------------------
 *)
 METHOD ServeFloor
@@ -77,7 +78,7 @@ stLatch.axCar[iFloor] := FALSE;
 CASE eDir OF
     DIR_UP:
         stLatch.axUp[iFloor] := FALSE;
-        // ileride cagri kalmadiysa ters yon cagrisini da al
+        // if there is nothing further ahead, take the reverse call too
         IF NOT THIS^.CallAbove(iFloor) THEN
             stLatch.axDown[iFloor] := FALSE;
         END_IF
@@ -95,7 +96,7 @@ END_CASE
 END_METHOD
 
 
-(*  Verilen katin USTUNDE bekleyen herhangi bir cagri var mi?  *)
+(*  Is there any call waiting ABOVE the given floor?  *)
 METHOD CallAbove : BOOL
 VAR_INPUT
     iFloor : INT;
@@ -115,7 +116,7 @@ END_FOR
 END_METHOD
 
 
-(*  Verilen katin ALTINDA bekleyen herhangi bir cagri var mi?  *)
+(*  Is there any call waiting BELOW the given floor?  *)
 METHOD CallBelow : BOOL
 VAR_INPUT
     iFloor : INT;

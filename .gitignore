@@ -1,29 +1,29 @@
 # ---------------------------------------------------------------------------
 # Godot 4
 # ---------------------------------------------------------------------------
-# Icgoru / onbellek klasoru — Godot projeyi acinca yeniden uretir.
+# Import / cache folder - Godot regenerates it when the project is opened.
 godot/.godot/
 
-# Disa aktarim ciktilari
+# Export output
 export/
 export_presets.cfg
 *.pck
 *.zip
 
-# NOT: *.uid dosyalari SILINMEZ. Godot 4.4+ script kimliklerini bunlarda tutar;
-# depoya dahil edilmezlerse projeyi klonlayan kiside bagimliliklar kopar.
+# NOTE: *.uid files are NOT ignored. Godot 4.4+ keeps script identities in
+# them; leave them out of the repo and dependencies break for whoever clones it.
 
 # ---------------------------------------------------------------------------
 # CODESYS
 # ---------------------------------------------------------------------------
-# Bu depoda ST kaynagi duz metin olarak tutulur (codesys/*.st).
-# CODESYS projesini kendiniz olusturursaniz ciktilari disarida birakin:
+# The ST source is kept in this repo as plain text (codesys/*.st).
+# If you build the CODESYS project yourself, keep its outputs out:
 *.project~
 *.project.~u
 backup/
 
 # ---------------------------------------------------------------------------
-# Isletim sistemi / editor
+# Operating system / editor
 # ---------------------------------------------------------------------------
 Thumbs.db
 desktop.ini

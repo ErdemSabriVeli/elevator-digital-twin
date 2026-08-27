@@ -1,23 +1,23 @@
 class_name AudioRig
 extends Node3D
 
-## Asansor sesleri — tamami calisma aninda sentezlenir (harici ses dosyasi yok).
+## Elevator sounds — all synthesised at run time (no external audio files).
 ##
-## Kaynaklar konumludur (AudioStreamPlayer3D):
-##   - tahrik makinesi ugultusu  : kuyunun tepesinde, hiza gore perde/ses degisir
-##   - kapi motoru               : kabinle birlikte hareket eder
-##   - gong / alarm / fren       : kabinde
+## The sources are positional (AudioStreamPlayer3D):
+##   - traction machine hum : at the shaft head, pitch/level follow speed
+##   - door motor           : travels with the car
+##   - gong / alarm / brake : in the car
 ##
-## Sesler PLC cikislarindan surulur; yani duydugunuz sey kumandanin gercek
-## durumudur, animasyon suslemesi degil.
+## The sounds are driven from PLC outputs, so what you hear is the actual
+## controller state, not animation garnish.
 
 const RATE := 22050
 
-var machine: AudioStreamPlayer3D      # surekli dongu, hiza gore modulasyon
-var door: AudioStreamPlayer3D         # kapi hareket ederken dongu
-var chime: AudioStreamPlayer3D        # varis gongu (tek atim)
-var alarm: AudioStreamPlayer3D        # alarm zili (dongu)
-var click: AudioStreamPlayer3D        # fren tutma/cozme tiki
+var machine: AudioStreamPlayer3D      # continuous loop, modulated by speed
+var door: AudioStreamPlayer3D         # loops while the door moves
+var chime: AudioStreamPlayer3D        # arrival gong (one shot)
+var alarm: AudioStreamPlayer3D        # alarm bell (loop)
+var click: AudioStreamPlayer3D        # brake engage/release click
 
 var _prev_brake := false
 var _prev_gong := false
@@ -57,12 +57,12 @@ func _mk(parent: Node3D, stream: AudioStreamWAV, pos: Vector3,
 
 
 # =============================================================================
-# CANLI GUNCELLEME
+# LIVE UPDATE
 # =============================================================================
 func update(plant: LiftPlant, status: int, delta: float) -> void:
 	var spd := absf(plant.speed_mms)
 
-	# --- makine ugultusu: hiz arttikca perde ve ses yukselir ---------------
+	# --- machine hum: pitch and level rise with speed --------------------
 	if spd > 5.0 and plant.powered:
 		var f := clampf(spd / float(LiftCfg.V_RATED_MMS), 0.0, 1.3)
 		machine.pitch_scale = 0.55 + 0.75 * f
@@ -71,19 +71,19 @@ func update(plant: LiftPlant, status: int, delta: float) -> void:
 	else:
 		machine.volume_db = lerpf(machine.volume_db, -80.0, minf(1.0, delta * 6.0))
 
-	# --- kapi motoru --------------------------------------------------------
+	# --- door motor -----------------------------------------------------
 	var door_moving: bool = (plant.c_door_open or plant.c_door_close) \
 			and plant.door_pos > 0.001 and plant.door_pos < 0.999
 	door.volume_db = lerpf(door.volume_db, -22.0 if door_moving else -80.0,
 			minf(1.0, delta * 14.0))
 
-	# --- gong (yukselen kenar) ---------------------------------------------
+	# --- gong (rising edge) ---------------------------------------------
 	var g := LiftIo.get_bit(status, LiftIo.ST_GONG)
 	if g and not _prev_gong:
 		chime.play()
 	_prev_gong = g
 
-	# --- alarm zili ---------------------------------------------------------
+	# --- alarm bell -----------------------------------------------------
 	var a := LiftIo.get_bit(status, LiftIo.ST_ALARM)
 	if a and not _prev_alarm:
 		alarm.play()
@@ -91,14 +91,14 @@ func update(plant: LiftPlant, status: int, delta: float) -> void:
 		alarm.stop()
 	_prev_alarm = a
 
-	# --- fren tiki (durum degisiminde) --------------------------------------
+	# --- brake click (on state change) ----------------------------------
 	if plant.brake_engaged != _prev_brake:
 		click.play()
 		_prev_brake = plant.brake_engaged
 
 
 # =============================================================================
-# SENTEZ
+# SYNTHESIS
 # =============================================================================
 static func _wav(samples: PackedFloat32Array) -> AudioStreamWAV:
 	var bytes := PackedByteArray()
@@ -114,26 +114,26 @@ static func _wav(samples: PackedFloat32Array) -> AudioStreamWAV:
 	return w
 
 
-## Dislisiz makine ugultusu: dusuk temel + harmonikler + hafif gurultu
+## Gearless machine hum: low fundamental + harmonics + a little noise
 static func _hum() -> AudioStreamWAV:
-	var n := RATE / 2                      # 0.5 s dongu
+	var n := RATE / 2                      # 0.5 s loop
 	var s := PackedFloat32Array()
 	s.resize(n)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4242
-	# dongunun kusursuz kapanmasi icin frekanslar tam periyot sayisi olmali
+	# frequencies must be whole periods so the loop closes seamlessly
 	for i in n:
 		var ph := TAU * float(i) / float(n)
-		var v := 0.55 * sin(ph * 24.0)        # ~48 Hz temel
-		v += 0.28 * sin(ph * 48.0)            # 2. harmonik
-		v += 0.14 * sin(ph * 72.0)            # 3. harmonik
-		v += 0.07 * sin(ph * 145.0)           # surucu anahtarlama tinisi
-		v += rng.randf_range(-0.05, 0.05)     # yatak/hava gurultusu
+		var v := 0.55 * sin(ph * 24.0)        # ~48 Hz fundamental
+		v += 0.28 * sin(ph * 48.0)            # 2nd harmonic
+		v += 0.14 * sin(ph * 72.0)            # 3rd harmonic
+		v += 0.07 * sin(ph * 145.0)           # drive switching whine
+		v += rng.randf_range(-0.05, 0.05)     # bearing / air noise
 		s[i] = v * 0.5
 	return _wav(s)
 
 
-## Kapi operatoru: kayis + redüktor sesi
+## Door operator: belt + gearbox sound
 static func _door_motor() -> AudioStreamWAV:
 	var n := RATE / 2
 	var s := PackedFloat32Array()
@@ -143,14 +143,14 @@ static func _door_motor() -> AudioStreamWAV:
 	var lp := 0.0
 	for i in n:
 		var ph := TAU * float(i) / float(n)
-		# alcak gecirgen suzulmus gurultu (surtunme) + hafif tonal bilesen
+		# low-pass filtered noise (friction) + a light tonal component
 		lp = lp * 0.86 + rng.randf_range(-1.0, 1.0) * 0.14
 		var v := lp * 0.8 + 0.18 * sin(ph * 96.0) + 0.10 * sin(ph * 192.0)
 		s[i] = v * 0.45
 	return _wav(s)
 
 
-## Varis gongu: iki notali, sonumlenen (gercek asansor chime'i)
+## Arrival gong: two notes, decaying (a real elevator chime)
 static func _chime() -> AudioStreamWAV:
 	var dur := 1.1
 	var n := int(RATE * dur)
@@ -162,10 +162,10 @@ static func _chime() -> AudioStreamWAV:
 	for i in n:
 		var t := float(i) / float(RATE)
 		var v := 0.0
-		# birinci nota
+		# first note
 		var e1: float = exp(-t * 4.2)
 		v += e1 * (sin(TAU * f1 * t) + 0.35 * sin(TAU * f1 * 2.0 * t))
-		# ikinci nota (gecikmeli)
+		# second note (delayed)
 		if i > split:
 			var t2 := float(i - split) / float(RATE)
 			var e2: float = exp(-t2 * 3.6)
@@ -174,21 +174,21 @@ static func _chime() -> AudioStreamWAV:
 	return _wav(s)
 
 
-## Alarm zili: kesikli calan tiz ton
+## Alarm bell: an interrupted high tone
 static func _bell() -> AudioStreamWAV:
 	var n := int(RATE * 0.5)
 	var s := PackedFloat32Array()
 	s.resize(n)
 	for i in n:
 		var t := float(i) / float(RATE)
-		# 0.25 s acik / 0.25 s kapali
+		# 0.25 s on / 0.25 s off
 		var gate := 1.0 if fmod(t, 0.5) < 0.25 else 0.0
 		var v := sin(TAU * 900.0 * t) + 0.4 * sin(TAU * 1800.0 * t)
 		s[i] = v * gate * 0.22
 	return _wav(s)
 
 
-## Fren tiki: kisa, sert gurultu atimi
+## Brake click: a short, sharp noise burst
 static func _click() -> AudioStreamWAV:
 	var n := int(RATE * 0.07)
 	var s := PackedFloat32Array()

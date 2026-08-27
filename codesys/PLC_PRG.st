@@ -1,14 +1,14 @@
 (*
     ============================================================================
-    PLC_PRG   —   Ana program (Task: 10 ms cyclic onerilir)
+    PLC_PRG   -   Main program (Task: 10 ms cyclic recommended)
     ----------------------------------------------------------------------------
-    Akis:
-        1) Modbus Holding Register'lari -> ST_LiftInputs        (Godot -> PLC)
-        2) FB_LiftCore                                          (kontrol mantigi)
-        3) ST_LiftOutputs -> Modbus Input Register'lari          (PLC -> Godot)
-        4) Twin baglanti gozetimi (heartbeat)
+    Flow:
+        1) Modbus Holding Registers -> ST_LiftInputs            (Godot -> PLC)
+        2) FB_LiftCore                                          (control logic)
+        3) ST_LiftOutputs -> Modbus Input Registers             (PLC -> Godot)
+        4) Twin connection supervision (heartbeat)
 
-    Register haritasi icin GVL_IO.st basligina veya docs/io-map.md dosyasina bakin.
+    For the register map see the GVL_IO.st header or docs/io-map.md.
     ============================================================================
 *)
 PROGRAM PLC_PRG
@@ -20,16 +20,16 @@ VAR
     wCmd    : WORD;
     wLim    : WORD;
 
-    // Twin (Godot) baglanti gozetimi
+    // Twin (Godot) connection supervision
     tonTwinLost : TON;
     iHbPrev     : INT;
 
-    // Manuel test bayraklari (CODESYS izleme penceresinden zorlanabilir)
+    // Manual test flags (can be forced from the CODESYS watch window)
     xForceOffline : BOOL;
 END_VAR
 
 // ===========================================================================
-// 1) GIRISLER:  Modbus Holding Registers -> ST_LiftInputs
+// 1) INPUTS:  Modbus Holding Registers -> ST_LiftInputs
 // ===========================================================================
 wCmd := GVL_IO.g_awMbIn[3];
 wLim := GVL_IO.g_awMbIn[5];
@@ -66,15 +66,16 @@ GVL_IO.g_stIn.xBrakeFb        := F_GetBit(wLim, 5);
 GVL_IO.g_stIn.xSafetyChain    := F_GetBit(wLim, 6);
 GVL_IO.g_stIn.xGovernorOk     := F_GetBit(wLim, 7);
 
-// Analog degerler
+// Analogue values
 GVL_IO.g_stIn.diPosMM      := WORD_TO_DINT(GVL_IO.g_awMbIn[6]);
 GVL_IO.g_stIn.iActSpeedMMS := WORD_TO_INT(GVL_IO.g_awMbIn[7]);
 GVL_IO.g_stIn.iDoorPosPmil := WORD_TO_INT(GVL_IO.g_awMbIn[8]);
 GVL_IO.g_stIn.iLoadKg      := WORD_TO_INT(GVL_IO.g_awMbIn[9]);
 
 // ---------------------------------------------------------------------------
-// Twin baglanti gozetimi: heartbeat 2 s degismezse simulasyon kopmustur.
-// Bu durumda guvenlik zinciri "acik" sayilir; asansor hareket etmez.
+// Twin connection supervision: if the heartbeat has not changed for 2 s the
+// simulation is gone. The safety chain is then treated as "open" and the
+// elevator does not move.
 // ---------------------------------------------------------------------------
 IF WORD_TO_INT(GVL_IO.g_awMbIn[10]) <> iHbPrev THEN
     iHbPrev := WORD_TO_INT(GVL_IO.g_awMbIn[10]);
@@ -91,13 +92,13 @@ IF NOT GVL_IO.g_xTwinOnline THEN
 END_IF
 
 // ===========================================================================
-// 2) KONTROL MANTIGI
+// 2) CONTROL LOGIC
 // ===========================================================================
 fbLift(stIn := GVL_IO.g_stIn);
 GVL_IO.g_stOut := fbLift.stOut;
 
 // ===========================================================================
-// 3) CIKISLAR:  ST_LiftOutputs -> Modbus Input Registers
+// 3) OUTPUTS:  ST_LiftOutputs -> Modbus Input Registers
 // ===========================================================================
 
 // DRIVE_CMD
@@ -116,7 +117,7 @@ wTmp := F_SetBit(wTmp, 1, GVL_IO.g_stOut.xDoorClose);
 wTmp := F_SetBit(wTmp, 2, GVL_IO.g_stOut.xDoorNudge);
 GVL_IO.g_awMbOut[1] := wTmp;
 
-// Lambalar
+// Lamps
 wTmp := 0;
 FOR i := 0 TO 15 DO wTmp := F_SetBit(wTmp, i, GVL_IO.g_stOut.axLampUp[i]); END_FOR
 GVL_IO.g_awMbOut[2] := wTmp;

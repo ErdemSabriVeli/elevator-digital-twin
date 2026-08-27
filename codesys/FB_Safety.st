@@ -1,15 +1,15 @@
 (*
     ============================================================================
-    FB_Safety   —   Guvenlik denetimi ve ariza yonetimi
+    FB_Safety   -   Safety supervision and fault handling
     ----------------------------------------------------------------------------
-    Onceligi en yuksek olan hata kodu cikar. Ariza kalicidir; reset butonu ile
-    (ve hata sebebi ortadan kalkmissa) silinir.
-    Godot karsiligi: SoftPlc.gd -> class Safety
+    The highest-priority fault code wins. A fault latches; it is cleared by the
+    reset button (and only once its cause has gone).
+    Godot counterpart: SoftPlc.gd -> class Safety
     ============================================================================
 *)
 FUNCTION_BLOCK FB_Safety
 VAR_INPUT
-    xSafetyChain  : BOOL;   // TRUE = saglam
+    xSafetyChain  : BOOL;   // TRUE = intact
     xGovernorOk   : BOOL;
     xEStop        : BOOL;
     xDriveReady   : BOOL;
@@ -20,15 +20,15 @@ VAR_INPUT
     xMoving       : BOOL;
     xDoorTimeout  : BOOL;
     xTravelTimeout: BOOL;
-    xZoneMismatch : BOOL;   // encoder ile kat sensoru uyusmuyor
-    xOverspeed    : BOOL;   // hiz regulatoru devreye girdi
-    xBrakeMismatch: BOOL;   // fren geri beslemesi kumandayla uyusmuyor
+    xZoneMismatch : BOOL;   // encoder and floor sensor disagree
+    xOverspeed    : BOOL;   // the overspeed governor tripped
+    xBrakeMismatch: BOOL;   // brake feedback disagrees with the command
     xReset        : BOOL;
 END_VAR
 VAR_OUTPUT
     eFault    : E_Fault;
     xFault    : BOOL;
-    xRunAllow : BOOL;       // hareket izni
+    xRunAllow : BOOL;       // permission to move
 END_VAR
 VAR
     xResetEdge : R_TRIG;
@@ -38,7 +38,7 @@ END_VAR
 // ---------------------------------------------------------------------------
 xResetEdge(CLK := xReset);
 
-// --- Ariza tespiti (oncelik sirasiyla) -------------------------------------
+// --- Fault detection (in priority order) -----------------------------------
 IF eFault = FLT_NONE THEN
 
     IF xEStop THEN
@@ -60,7 +60,7 @@ IF eFault = FLT_NONE THEN
         eFault := FLT_LIMIT;
 
     ELSIF xMoving AND NOT xDoorLocked THEN
-        eFault := FLT_LOCK_LOST;       // hareket halinde kilit acildi
+        eFault := FLT_LOCK_LOST;       // the lock opened while moving
 
     ELSIF xTravelTimeout THEN
         eFault := FLT_TRAVEL_TIMEOUT;
@@ -76,7 +76,7 @@ END_IF
 
 // --- Reset ------------------------------------------------------------------
 IF xResetEdge.Q THEN
-    // sebep hala duruyorsa reset kabul edilmez
+    // a reset is refused while the cause is still present
     IF NOT xEStop
        AND xSafetyChain AND xGovernorOk
        AND xDriveReady AND NOT xDriveFault
@@ -94,9 +94,9 @@ xRunAllow := NOT xFault
 
 
 (*
-    Regulator islevi: gercek hiz anma hizinin %115'ini (C_V_OVERSPEED_MMS)
-    C_T_OVERSPEED suresince asarsa devreye girer.
-    Godot karsiligi: SoftPlc.gd -> Safety.overspeed_trip()
+    Governor function: it trips when the actual speed exceeds 115% of rated
+    (C_V_OVERSPEED_MMS) for C_T_OVERSPEED.
+    Godot counterpart: SoftPlc.gd -> Safety.overspeed_trip()
 *)
 METHOD OverspeedTrip : BOOL
 VAR_INPUT

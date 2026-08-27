@@ -1,19 +1,19 @@
 extends SceneTree
 
-## ST <-> GDScript ESLESME TESTI
+## ST <-> GDScript PARITY TEST
 ##
-## Bu projede kontrol mantigi iki yerde yasiyor:
-##   codesys/*.st        -> gercek PLC'de calisan kod
-##   godot/scripts/*.gd  -> ayni mantigin GDScript ikizi
+## The control logic in this project lives in two places:
+##   codesys/*.st        -> the code that runs on the real PLC
+##   godot/scripts/*.gd  -> a GDScript twin of the same logic
 ##
-## Ikisi sessizce birbirinden kayarsa dijital ikiz gercek PLC'yi temsil etmez
-## ve bunu fark etmek cok zordur. Bu test ST kaynagini AYRISTIRIR ve GDScript
-## tarafiyla karsilastirir:
-##   - GVL_Config.st sabitleri  <-> Config.gd
-##   - DUT_Types.st enum'lari   <-> IoMap.gd (State / Fault / DoorState / yon)
-##   - PLC_PRG.st bit indisleri <-> IoMap.gd (CMD / LIMIT / STATUS)
+## If the two silently drift apart the digital twin no longer represents the
+## real PLC, and that is very hard to notice. This test PARSES the ST source
+## and compares it against the GDScript side:
+##   - GVL_Config.st constants  <-> Config.gd
+##   - DUT_Types.st enums       <-> IoMap.gd (State / Fault / DoorState / dir)
+##   - PLC_PRG.st bit indices   <-> IoMap.gd (CMD / LIMIT / STATUS)
 ##
-## Calistirma:
+## Run with:
 ##   godot --headless --path <godot> --script res://tests/parity_test.gd
 
 var failures := 0
@@ -21,11 +21,11 @@ var st_dir := ""
 
 
 func _initialize() -> void:
-	print("=== ST <-> GDScript ESLESME TESTI ===\n")
+	print("=== ST <-> GDScript PARITY TEST ===\n")
 	st_dir = ProjectSettings.globalize_path("res://").path_join("../codesys")
 
 	if not DirAccess.dir_exists_absolute(st_dir):
-		print("  [HATA ] codesys klasoru bulunamadi: %s" % st_dir)
+		print("  [FAIL ] codesys folder not found: %s" % st_dir)
 		quit(1)
 		return
 
@@ -33,32 +33,32 @@ func _initialize() -> void:
 	test_enums()
 	test_bit_map()
 
-	print("\n=== SONUC: %s ===" % ("ST ILE IKIZ ORTUSUYOR" if failures == 0
-			else "%d UYUSMAZLIK" % failures))
+	print("\n=== RESULT: %s ===" % ("TWIN MATCHES THE ST" if failures == 0
+			else "%d MISMATCHES" % failures))
 	quit(1 if failures > 0 else 0)
 
 
 func check(name: String, ok: bool, detail := "") -> void:
 	if not ok:
 		failures += 1
-		print("  [HATA ] %s %s" % [name, detail])
+		print("  [FAIL ] %s %s" % [name, detail])
 
 
 func ok_line(text: String) -> void:
-	print("  [gecti] %s" % text)
+	print("  [ ok  ] %s" % text)
 
 
 func read_st(fname: String) -> String:
 	var f := FileAccess.open(st_dir.path_join(fname), FileAccess.READ)
 	if f == null:
-		check("dosya okunabildi: %s" % fname, false)
+		check("file could be read: %s" % fname, false)
 		return ""
 	var s := f.get_as_text()
 	f.close()
 	return s
 
 
-## "T#600MS" / "T#4S" -> saniye
+## "T#600MS" / "T#4S" -> seconds
 func parse_time(lit: String) -> float:
 	var t := lit.strip_edges().to_upper()
 	if not t.begins_with("T#"):
@@ -79,7 +79,7 @@ func parse_time(lit: String) -> float:
 
 # =============================================================================
 func test_constants() -> void:
-	print("1) GVL_Config.st  <->  Config.gd sabitleri")
+	print("1) GVL_Config.st  <->  Config.gd constants")
 
 	var src := read_st("GVL_Config.st")
 	if src == "":
@@ -91,8 +91,8 @@ func test_constants() -> void:
 	re.compile("(?m)^\\s*(C_[A-Z0-9_]+)\\s*:\\s*([A-Z]+)\\s*:=\\s*([^;]+);")
 
 	var matches := re.search_all(src)
-	check("ST sabitleri ayristirildi", matches.size() > 15,
-			"(sadece %d sabit bulundu)" % matches.size())
+	check("ST constants parsed", matches.size() > 15,
+			"(only %d constants found)" % matches.size())
 
 	var n := 0
 	var bad := 0
@@ -100,10 +100,10 @@ func test_constants() -> void:
 		var st_name := m.get_string(1)
 		var st_type := m.get_string(2)
 		var st_val := m.get_string(3).strip_edges()
-		var gd_name := st_name.substr(2)   # C_ onekini at
+		var gd_name := st_name.substr(2)   # drop the C_ prefix
 
 		if not cfg.has(gd_name):
-			check("%s -> Config.gd icinde karsiligi yok (%s)" % [st_name, gd_name], false)
+			check("%s -> no counterpart in Config.gd (%s)" % [st_name, gd_name], false)
 			bad += 1
 			continue
 
@@ -120,17 +120,17 @@ func test_constants() -> void:
 			shown = "ST %s, GD %s" % [st_val, str(gd_val)]
 
 		if not good:
-			check("%s UYUSMUYOR" % st_name, false, "(%s)" % shown)
+			check("%s MISMATCH" % st_name, false, "(%s)" % shown)
 			bad += 1
 		n += 1
 
 	if bad == 0:
-		ok_line("%d sabitin tamami ortusuyor" % n)
+		ok_line("all %d constants match" % n)
 
 
 # =============================================================================
 func test_enums() -> void:
-	print("\n2) DUT_Types.st  <->  IoMap.gd enum'lari")
+	print("\n2) DUT_Types.st  <->  IoMap.gd enums")
 
 	var src := read_st("DUT_Types.st")
 	if src == "":
@@ -142,7 +142,7 @@ func test_enums() -> void:
 	_cmp_enum(src, "E_Fault", "FLT_", io.get("Fault", {}), "Fault")
 	_cmp_enum(src, "E_DoorState", "DS_", io.get("DoorState", {}), "DoorState")
 
-	# Yon enum'u IoMap'te ayri sabitler olarak duruyor
+	# The direction enum lives as separate constants in IoMap
 	var dirs := _parse_enum(src, "E_Direction")
 	var dir_map := {
 		"DIR_NONE": io.get("DIR_NONE"),
@@ -156,7 +156,7 @@ func test_enums() -> void:
 					"(ST %d, GD %s)" % [dirs[k], str(dir_map.get(k))])
 			bad += 1
 	if bad == 0 and dirs.size() > 0:
-		ok_line("E_Direction (%d deger) ortusuyor" % dirs.size())
+		ok_line("E_Direction (%d values) match" % dirs.size())
 
 
 func _parse_enum(src: String, type_name: String) -> Dictionary:
@@ -177,7 +177,7 @@ func _parse_enum(src: String, type_name: String) -> Dictionary:
 func _cmp_enum(src: String, type_name: String, prefix: String,
 		gd_enum: Dictionary, gd_label: String) -> void:
 	var st_enum := _parse_enum(src, type_name)
-	check("%s ayristirilamadi" % type_name, st_enum.size() > 0)
+	check("%s could not be parsed" % type_name, st_enum.size() > 0)
 	if st_enum.is_empty():
 		return
 
@@ -185,7 +185,7 @@ func _cmp_enum(src: String, type_name: String, prefix: String,
 	for st_key in st_enum:
 		var gd_key: String = st_key.substr(prefix.length())
 		if not gd_enum.has(gd_key):
-			check("%s.%s -> IoMap.%s icinde yok" % [type_name, st_key, gd_label], false)
+			check("%s.%s -> missing from IoMap.%s" % [type_name, st_key, gd_label], false)
 			bad += 1
 			continue
 		if st_enum[st_key] != gd_enum[gd_key]:
@@ -193,12 +193,12 @@ func _cmp_enum(src: String, type_name: String, prefix: String,
 					"(ST %d, GD %d)" % [st_enum[st_key], gd_enum[gd_key]])
 			bad += 1
 	if bad == 0:
-		ok_line("%s (%d deger) ortusuyor" % [type_name, st_enum.size()])
+		ok_line("%s (%d values) match" % [type_name, st_enum.size()])
 
 
 # =============================================================================
 func test_bit_map() -> void:
-	print("\n3) PLC_PRG.st  <->  IoMap.gd bit indisleri")
+	print("\n3) PLC_PRG.st  <->  IoMap.gd bit indices")
 
 	var src := read_st("PLC_PRG.st")
 	if src == "":
@@ -244,7 +244,7 @@ func test_bit_map() -> void:
 	for field in st_map:
 		var const_name: String = st_map[field]
 		if not seen.has(field):
-			check("STATUS.%s ST tarafinda yazilmiyor" % field, false)
+			check("STATUS.%s is never written on the ST side" % field, false)
 			bad += 1
 			continue
 		if seen[field] != io.get(const_name):
@@ -253,7 +253,7 @@ func test_bit_map() -> void:
 					str(io.get(const_name))])
 			bad += 1
 	if bad == 0:
-		ok_line("STATUS (%d bit) ortusuyor" % st_map.size())
+		ok_line("STATUS (%d bits) match" % st_map.size())
 
 
 func _cmp_getbits(src: String, word: String, name_map: Dictionary,
@@ -268,7 +268,7 @@ func _cmp_getbits(src: String, word: String, name_map: Dictionary,
 	for field in name_map:
 		var const_name: String = name_map[field]
 		if not seen.has(field):
-			check("%s.%s ST tarafinda okunmuyor" % [word, field], false)
+			check("%s.%s is never read on the ST side" % [word, field], false)
 			bad += 1
 			continue
 		if seen[field] != io.get(const_name):
@@ -277,4 +277,4 @@ func _cmp_getbits(src: String, word: String, name_map: Dictionary,
 					str(io.get(const_name))])
 			bad += 1
 	if bad == 0:
-		ok_line("%s (%d bit) ortusuyor" % [word, name_map.size()])
+		ok_line("%s (%d bits) match" % [word, name_map.size()])

@@ -1,18 +1,18 @@
 ﻿class_name ShaftRig
 extends Node3D
 
-## Asansor kuyusu, kat holleri, kat kapilari, makine dairesi ve karsi agirlik.
-## Tum geometri prosedureldir.
+## The shaft, landings, landing doors, machine space and counterweight.
+## All the geometry is procedural.
 ##
-## Koordinat sistemi:
-##   Y = 0        -> zemin kat (kabin taban seviyesi)
-##   +Z          -> kat holu / kapi yonu
-##   Kuyu merkezi X = 0, Z = 0
+## Coordinate system:
+##   Y = 0        -> ground floor (car floor level)
+##   +Z          -> landing / door direction
+##   Shaft centre X = 0, Z = 0
 
 const HALF_W := LiftCfg.M_SHAFT_W * 0.5
 const HALF_D := LiftCfg.M_SHAFT_D * 0.5
-const DOOR_Z := HALF_D - 0.02          # kat kapisi duzlemi
-const COL := 0.12                      # kolon kesiti
+const DOOR_Z := HALF_D - 0.02          # landing door plane
+const COL := 0.12                      # column section
 
 var landing_left: Array[Node3D] = []
 var landing_right: Array[Node3D] = []
@@ -20,25 +20,25 @@ var hall_up: Array = []
 var hall_down: Array = []
 var displays: Array[LedDisplay] = []
 
-# --- tahrik sistemi ---------------------------------------------------------
+# --- traction system --------------------------------------------------------
 var machine_root: Node3D
-var sheave: Node3D                       # tahrik kasnagi (doner)
-var deflector: Node3D                    # saptirma makarasi (doner)
+var sheave: Node3D                       # traction sheave (rotates)
+var deflector: Node3D                    # deflector sheave (rotates)
 var brake_disc: Node3D
 var brake_pads: Array[MeshInstance3D] = []
 var _brake_pad_sign: Array[float] = []
-const BRAKE_ON_X := 0.019      # balata diske temas ediyor (fren tutuyor)
-const BRAKE_OFF_X := 0.031     # balata geri cekildi (fren cozuldu)
+const BRAKE_ON_X := 0.019      # pad touching the disc (brake holding)
+const BRAKE_OFF_X := 0.031     # pad pulled back (brake released)
 var governor: Node3D
 var gov_tension: Node3D
 var gov_clamp: Node3D
 var counterweight: Node3D
 
-# --- halatlar (her biri icin kabin ve karsi agirlik tarafi dusey kol) -------
+# --- ropes (a vertical leg on the car side and the cwt side for each) -------
 var _rope_car: Array[MeshInstance3D] = []
 var _rope_cwt: Array[MeshInstance3D] = []
-var _rope_car_mesh: CylinderMesh          # 5 kabin halati bu mesh'i paylasir
-var _rope_cwt_mesh: CylinderMesh          # 5 karsi agirlik halati
+var _rope_car_mesh: CylinderMesh          # the 5 car-side ropes share this mesh
+var _rope_cwt_mesh: CylinderMesh          # the 5 counterweight ropes
 var _rope_x_pos: Array[float] = []
 
 var panel_leds: Array[MeshInstance3D] = []
@@ -79,14 +79,14 @@ func _build_ground() -> void:
 
 func _build_pit() -> void:
 	var d := LiftCfg.M_PIT_DEPTH
-	# kuyu dibi tabani
+	# pit floor
 	Vis.box(self, Vector3(LiftCfg.M_SHAFT_W + 0.4, 0.25, LiftCfg.M_SHAFT_D + 0.4),
 			Vector3(0, -d - 0.125, 0), Vis.mat("concrete_dark"))
-	# tamponlar (buffer)
+	# buffers
 	for x: float in [-0.55, 0.55]:
 		Vis.cyl(self, 0.10, 0.55, Vector3(x, -d + 0.27, 0), Vis.mat("steel_dark"))
 		Vis.cyl(self, 0.14, 0.10, Vector3(x, -d + 0.05, 0), Vis.mat("rubber"))
-	# karsi agirlik tamponu
+	# counterweight buffer
 	Vis.cyl(self, 0.10, 0.45, Vector3(0, -d + 0.22, LiftCfg.M_CWT_Z), Vis.mat("steel_dark"))
 
 
@@ -94,9 +94,9 @@ func _build_structure() -> void:
 	var h := LiftCfg.total_height() + LiftCfg.M_PIT_DEPTH
 	var y0 := -LiftCfg.M_PIT_DEPTH + h * 0.5
 
-	# --- 4 kose kolonu ------------------------------------------------------
-	# On taraftakiler kuyunun icine kaydirilir; boylece kat holu duvarinin
-	# arkasinda kalir ve holden gorunmez.
+	# --- the 4 corner columns -----------------------------------------------
+	# The front pair is shifted into the shaft so it stays behind the landing
+	# wall and is not visible from the lobby.
 	for sx: float in [-1.0, 1.0]:
 		for sz: float in [-1.0, 1.0]:
 			var cz := sz * (HALF_D + COL * 0.5)
@@ -106,7 +106,7 @@ func _build_structure() -> void:
 					Vector3(sx * (HALF_W + COL * 0.5), y0, cz),
 					Vis.mat("steel_dark"))
 
-	# --- her kat hizasinda cevre kirisi -------------------------------------
+	# --- perimeter beam at every floor level --------------------------------
 	for f in range(LiftCfg.FLOOR_COUNT + 1):
 		var y := float(f) * LiftCfg.M_FLOOR_H - 0.12
 		if f == LiftCfg.FLOOR_COUNT:
@@ -121,23 +121,23 @@ func _build_structure() -> void:
 			Vis.box(self, Vector3(COL, 0.10, LiftCfg.M_SHAFT_D),
 					Vector3(sx * (HALF_W + COL * 0.5), y, 0), Vis.mat("steel_dark"))
 
-	# --- cam panelli sirt ve sol yuz (panoramik kuyu) -----------------------
+	# --- glazed back and left face (panoramic shaft) ------------------------
 	Vis.box(self, Vector3(LiftCfg.M_SHAFT_W, h - 0.5, 0.02),
 			Vector3(0, y0, -HALF_D - 0.03), Vis.mat("glass_dark"))
 	Vis.box(self, Vector3(0.02, h - 0.5, LiftCfg.M_SHAFT_D),
 			Vector3(-HALF_W - 0.03, y0, 0), Vis.mat("glass_dark"))
-	# sag yuz acik birakildi -> mekanizma gorunur
+	# the right face is left open -> the mechanism stays visible
 
 
 func _build_rails() -> void:
 	var h := LiftCfg.total_height() + LiftCfg.M_PIT_DEPTH
 	var y0 := -LiftCfg.M_PIT_DEPTH + h * 0.5
-	# kabin kilavuz raylari (T profil basitlestirilmis)
+	# car guide rails (simplified T profile)
 	for sx: float in [-1.0, 1.0]:
 		var x := sx * (HALF_W - 0.06)
 		Vis.box(self, Vector3(0.05, h, 0.16), Vector3(x, y0, 0), Vis.mat("rail"))
 		Vis.box(self, Vector3(0.12, h, 0.04), Vector3(x + sx * 0.03, y0, 0), Vis.mat("rail"))
-	# karsi agirlik raylari
+	# counterweight guide rails
 	for sx: float in [-1.0, 1.0]:
 		Vis.box(self, Vector3(0.04, h, 0.10),
 				Vector3(sx * 0.62, y0, LiftCfg.M_CWT_Z - 0.12), Vis.mat("rail"))
@@ -153,7 +153,7 @@ func _build_floor(f: int) -> void:
 
 	var hall_z := HALF_D + LiftCfg.M_HALL_D * 0.5
 
-	# --- hol dosemesi: mermer + koyu bordur ---------------------------------
+	# --- landing floor: marble + dark border --------------------------------
 	Vis.box(root, Vector3(LiftCfg.M_HALL_W, LiftCfg.M_SLAB_T, LiftCfg.M_HALL_D),
 			Vector3(0, -LiftCfg.M_SLAB_T * 0.5, hall_z), Vis.mat("slab"))
 	Vis.box(root, Vector3(LiftCfg.M_HALL_W - 0.06, 0.02, LiftCfg.M_HALL_D - 0.06),
@@ -161,13 +161,13 @@ func _build_floor(f: int) -> void:
 	Vis.box(root, Vector3(LiftCfg.M_HALL_W - 0.5, 0.024, LiftCfg.M_HALL_D - 0.5),
 			Vector3(0, 0.012, hall_z), Vis.mat("marble"))
 
-	# --- hol duvarlari (kesit gorunumu: sag yuz ve on cephe acik) -----------
+	# --- landing walls (cutaway view: right face and front left open) -------
 	var hw := LiftCfg.M_FLOOR_H - 0.28
 	Vis.box(root, Vector3(LiftCfg.M_HALL_W, hw, 0.10),
 			Vector3(0, hw * 0.5, HALF_D + LiftCfg.M_HALL_D), Vis.mat("wall_paint"))
 	Vis.box(root, Vector3(0.10, hw, LiftCfg.M_HALL_D),
 			Vector3(-LiftCfg.M_HALL_W * 0.5, hw * 0.5, hall_z), Vis.mat("wall_paint"))
-	# supurgelikler (arka duvar + asansor cephesi)
+	# skirtings (rear wall + elevator front)
 	Vis.box(root, Vector3(LiftCfg.M_HALL_W, 0.10, 0.02),
 			Vector3(0, 0.05, HALF_D + LiftCfg.M_HALL_D - 0.06), Vis.mat("inox_dark"))
 	var sk_w := (LiftCfg.M_HALL_W - LiftCfg.M_DOOR_W - 0.30) * 0.5
@@ -176,39 +176,39 @@ func _build_floor(f: int) -> void:
 		Vis.box(root, Vector3(sk_w, 0.10, 0.02),
 				Vector3(sk_x, 0.05, HALF_D + 0.13), Vis.mat("inox_dark"))
 
-	# hol arka duvari (asansor cephesi) - kapi boslugu birakilir
+	# landing rear wall (the elevator front) - the door opening is left out
 	var wall_h := LiftCfg.M_FLOOR_H - 0.4
 	var side_w := (LiftCfg.M_HALL_W - LiftCfg.M_DOOR_W - 0.24) * 0.5
 	for sx: float in [-1.0, 1.0]:
 		Vis.box(root, Vector3(side_w, wall_h, 0.12),
 				Vector3(sx * (LiftCfg.M_DOOR_W * 0.5 + 0.12 + side_w * 0.5),
 						wall_h * 0.5, HALF_D + 0.06), Vis.mat("wall_paint"))
-	# lento
+	# lintel
 	Vis.box(root, Vector3(LiftCfg.M_DOOR_W + 0.24, wall_h - LiftCfg.M_DOOR_H - 0.06,
 			0.12), Vector3(0, LiftCfg.M_DOOR_H + 0.06 + (wall_h - LiftCfg.M_DOOR_H - 0.06) * 0.5,
 			HALF_D + 0.06), Vis.mat("wall_paint"))
 
-	# --- paslanmaz kapi sovesi (jamb) --------------------------------------
+	# --- stainless door jamb ------------------------------------------------
 	var frame_z := HALF_D + 0.13
 	for sx: float in [-1.0, 1.0]:
-		# sove govdesi
+		# jamb body
 		Vis.box(root, Vector3(0.13, LiftCfg.M_DOOR_H + 0.15, 0.075),
 				Vector3(sx * (LiftCfg.M_DOOR_W * 0.5 + 0.065),
 						(LiftCfg.M_DOOR_H + 0.15) * 0.5, frame_z),
 				Vis.mat("inox"))
-		# sovenin kuyuya donen ic yuzu
+		# the inner face of the jamb, turned into the shaft
 		Vis.box(root, Vector3(0.02, LiftCfg.M_DOOR_H + 0.15, 0.10),
 				Vector3(sx * (LiftCfg.M_DOOR_W * 0.5 + 0.005),
 						(LiftCfg.M_DOOR_H + 0.15) * 0.5, HALF_D + 0.055),
 				Vis.mat("inox_dark"))
-	# ust sove
+	# head jamb
 	Vis.box(root, Vector3(LiftCfg.M_DOOR_W + 0.26, 0.13, 0.075),
 			Vector3(0, LiftCfg.M_DOOR_H + 0.085, frame_z), Vis.mat("inox"))
-	# esik (paslanmaz)
+	# sill (stainless)
 	Vis.box(root, Vector3(LiftCfg.M_DOOR_W + 0.22, 0.03, 0.13),
 			Vector3(0, 0.015, DOOR_Z - 0.01), Vis.mat("inox"))
 
-	# --- kat kapisi kanatlari (merkezi acilim, firçalanmis inox) ------------
+	# --- landing door panels (centre opening, brushed inox) -----------------
 	var lw := LiftCfg.M_DOOR_W * 0.5
 	for side in [-1, 1]:
 		var leaf := Node3D.new()
@@ -216,7 +216,7 @@ func _build_floor(f: int) -> void:
 		root.add_child(leaf)
 		Vis.box(leaf, Vector3(lw, LiftCfg.M_DOOR_H, LiftCfg.M_DOOR_T),
 				Vector3(0, LiftCfg.M_DOOR_H * 0.5, 0), Vis.mat("inox"))
-		# kapanma kenari profili
+		# closing edge profile
 		Vis.box(leaf, Vector3(0.014, LiftCfg.M_DOOR_H, LiftCfg.M_DOOR_T + 0.008),
 				Vector3(-side * (lw * 0.5 - 0.007), LiftCfg.M_DOOR_H * 0.5, 0),
 				Vis.mat("inox_dark"))
@@ -225,7 +225,7 @@ func _build_floor(f: int) -> void:
 		else:
 			landing_right.append(leaf)
 
-	# --- hol gostergesi: kirmizi nokta-matris (kapi ustu) -------------------
+	# --- landing indicator: red dot-matrix (above the door) -----------------
 	var ind_y := LiftCfg.M_DOOR_H + 0.30
 	Vis.box(root, Vector3(0.40, 0.17, 0.035),
 			Vector3(0, ind_y, HALF_D + 0.155), Vis.mat("inox"))
@@ -234,7 +234,7 @@ func _build_floor(f: int) -> void:
 	var disp := LedDisplay.create(root, Vector3(0, ind_y, HALF_D + 0.182), 0.315)
 	displays.append(disp)
 
-	# --- kat numarasi plakasi (sovenin yaninda) ----------------------------
+	# --- floor number plate (beside the jamb) -------------------------------
 	Vis.box(root, Vector3(0.13, 0.13, 0.008),
 			Vector3(-(LiftCfg.M_DOOR_W * 0.5 + 0.20), 1.62, HALF_D + 0.125),
 			Vis.mat("inox"))
@@ -242,13 +242,13 @@ func _build_floor(f: int) -> void:
 			Vector3(-(LiftCfg.M_DOOR_W * 0.5 + 0.20), 1.62, HALF_D + 0.132), 0.0012,
 			Color(0.16, 0.17, 0.18))
 	fl.outline_size = 0
-	# buyuk duvar numarasi
+	# large wall numeral
 	var fl2 := Vis.label(root, LiftIo.floor_name(f),
 			Vector3(-(LiftCfg.M_DOOR_W * 0.5 + 0.80), 1.80, HALF_D + 0.121), 0.0032,
 			Color(0.45, 0.47, 0.50))
 	fl2.outline_size = 0
 
-	# --- hol cagri butonu plakasi -------------------------------------------
+	# --- landing call button plate ------------------------------------------
 	var bx := LiftCfg.M_DOOR_W * 0.5 + 0.28
 	Vis.box(root, Vector3(0.115, 0.235, 0.012),
 			Vector3(bx, 1.12, HALF_D + 0.126), Vis.mat("inox"))
@@ -271,11 +271,11 @@ func _build_floor(f: int) -> void:
 	else:
 		hall_down.append(null)
 
-	# --- kumanda panosu (MRL: en ust kat holunde) ---------------------------
+	# --- control panel (MRL: at the top landing) ----------------------------
 	if f == LiftCfg.TOP_FLOOR:
 		_build_control_panel(root)
 
-	# --- hol aydinlatmasi ---------------------------------------------------
+	# --- landing lighting ---------------------------------------------------
 	var lamp := OmniLight3D.new()
 	lamp.position = Vector3(0, LiftCfg.M_FLOOR_H - 0.55, hall_z - 0.4)
 	lamp.light_energy = 0.95
@@ -283,7 +283,7 @@ func _build_floor(f: int) -> void:
 	lamp.light_color = Color(1.0, 0.96, 0.90)
 	lamp.shadow_enabled = false
 	root.add_child(lamp)
-	# gomme tavan armaturu (cerceve + difuzor)
+	# recessed ceiling fitting (frame + diffuser)
 	Vis.box(root, Vector3(1.16, 0.06, 0.56),
 			Vector3(0, LiftCfg.M_FLOOR_H - 0.44, hall_z - 0.4), Vis.mat("inox_dark"))
 	Vis.box(root, Vector3(1.06, 0.03, 0.46),
@@ -292,16 +292,18 @@ func _build_floor(f: int) -> void:
 
 
 # =============================================================================
-# TAHRIK MAKINESI  (dislisiz / PM gearless, makine dairesiz yerlesim)
+# TRACTION MACHINE  (PM gearless, machine-room-less layout)
 # -----------------------------------------------------------------------------
-# Gercek bir MRL asansorde:
-#   - Sabit miknatisli senkron motor, redüktörsüz; tahrik kasnagi motor miline
-#     dogrudan baglidir.
-#   - Kasnak uzerinde her halat icin ayri V/U kanal bulunur.
-#   - Motorun diger ucunda fren diski ve iki elektromanyetik kaliper vardir;
-#     bobin enerjilenince pabuclar acilir (fren cozulur).
-#   - Mil ucunda enkoder, govde uzerinde sogutma kanatlari.
-#   - Kasnak ile karsi agirlik hatti arasindaki mesafeyi saptirma makarasi ayarlar.
+# On a real MRL elevator:
+#   - A permanent-magnet synchronous motor with no gearbox; the traction
+#     sheave sits directly on the motor shaft.
+#   - The sheave carries a separate V/U groove for every rope.
+#   - At the other end of the motor there is a brake disc and two
+#     electromagnetic calipers; energising the coil opens the shoes
+#     (releases the brake).
+#   - An encoder on the shaft end, cooling fins on the housing.
+#   - A deflector sheave sets the offset between the sheave and the
+#     counterweight line.
 # =============================================================================
 func _build_machine_room() -> void:
 	var y := top_y + LiftCfg.M_HEADROOM
@@ -309,17 +311,17 @@ func _build_machine_room() -> void:
 	root.name = "Machine"
 	add_child(root)
 
-	# kuyu tavani (halat gecisi icin ortasi acik iki parca)
+	# shaft ceiling (two pieces, open in the middle for the rope run)
 	for sz: float in [-1.0, 1.0]:
 		Vis.box(root, Vector3(LiftCfg.M_SHAFT_W + 0.5, 0.16, LiftCfg.M_SHAFT_D * 0.34),
 				Vector3(0, y, sz * (HALF_D - LiftCfg.M_SHAFT_D * 0.17)),
 				Vis.mat("concrete"))
 
-	# --- tasiyici celik kirisler + kaide -----------------------------------
+	# --- supporting steel beams + bedplate ----------------------------------
 	for sx: float in [-1.0, 1.0]:
 		Vis.box(root, Vector3(0.16, 0.28, LiftCfg.M_SHAFT_D + 0.3),
 				Vector3(sx * 0.78, sheave_y + 0.70, -0.20), Vis.mat("steel_dark"))
-	# makine kaidesi (bedplate) + titresim takozlari
+	# machine bedplate + anti-vibration pads
 	Vis.box(root, Vector3(1.30, 0.09, 0.70),
 			Vector3(-0.10, sheave_y + 0.52, -0.30), Vis.mat("bedplate"))
 	for sx2: float in [-1.0, 1.0]:
@@ -329,38 +331,38 @@ func _build_machine_room() -> void:
 					Vis.mat("rubber"))
 
 	# ==========================================================================
-	# Tahrik kasnagi hatti:  kabin tarafi z = 0, karsi agirlik tarafi z = -2R
+	# Traction sheave line:  car side z = 0, counterweight side z = -2R
 	# ==========================================================================
-	var tz := LiftCfg.M_ROPE_Z_CAR - LiftCfg.M_SHEAVE_R      # kasnak merkezi z
+	var tz := LiftCfg.M_ROPE_Z_CAR - LiftCfg.M_SHEAVE_R      # sheave centre z
 	var mroot := Node3D.new()
 	mroot.position = Vector3(0, sheave_y, tz)
 	root.add_child(mroot)
 	machine_root = mroot
 
-	var rope_w: float = (LiftCfg.ROPE_COUNT - 1) * LiftCfg.ROPE_PITCH   # halat demeti genisligi
+	var rope_w: float = (LiftCfg.ROPE_COUNT - 1) * LiftCfg.ROPE_PITCH   # rope bundle width
 
-	# --- PM disk motor govdesi (kasnagin solunda) ---------------------------
+	# --- PM disc motor housing (to the left of the sheave) ------------------
 	var mb := Vis.cyl(mroot, 0.35, 0.30, Vector3(-0.34, 0, 0), Vis.mat("motor"))
 	mb.rotation_degrees = Vector3(0, 0, 90)
-	# sogutma kanatlari
+	# cooling fins
 	for i in range(16):
 		var a := TAU * float(i) / 16.0
 		var fin := Vis.box(mroot, Vector3(0.28, 0.72, 0.022), Vector3(-0.34, 0, 0),
 				Vis.mat("motor_fin"))
 		fin.rotation = Vector3(a, 0, 0)
-	# klemens kutusu
+	# terminal box
 	Vis.box(mroot, Vector3(0.20, 0.16, 0.22), Vector3(-0.34, 0.40, 0), Vis.mat("motor_fin"))
-	# mil
+	# shaft
 	var shaft := Vis.cyl(mroot, 0.055, 1.05, Vector3(-0.05, 0, 0), Vis.mat("steel"))
 	shaft.rotation_degrees = Vector3(0, 0, 90)
 
-	# --- tahrik kasnagi (donen) --------------------------------------------
+	# --- traction sheave (rotating) -----------------------------------------
 	sheave = Node3D.new()
 	mroot.add_child(sheave)
 	var hub := Vis.cyl(sheave, LiftCfg.M_SHEAVE_R - 0.035, rope_w + 0.10,
 			Vector3.ZERO, Vis.mat("steel"))
 	hub.rotation_degrees = Vector3(0, 0, 90)
-	# halat kanallari: her halat icin bir bilezik (aralarinda yuksek yaka)
+	# rope grooves: one ring per rope, with a raised land between them
 	for r in range(LiftCfg.ROPE_COUNT):
 		var rx := _rope_x(r)
 		var flange := Vis.cyl(sheave, LiftCfg.M_SHEAVE_R, 0.010,
@@ -370,7 +372,7 @@ func _build_machine_room() -> void:
 			Vector3(_rope_x(LiftCfg.ROPE_COUNT - 1) + LiftCfg.ROPE_PITCH * 0.5, 0, 0),
 			Vis.mat("steel_dark"))
 	last_flange.rotation_degrees = Vector3(0, 0, 90)
-	# govde delikleri (donus gozle gorulur olsun)
+	# web holes (so the rotation is visible)
 	for i in range(6):
 		var a2 := TAU * float(i) / 6.0
 		var sp := Vis.box(sheave, Vector3(rope_w + 0.12, 0.09, 0.09),
@@ -378,7 +380,7 @@ func _build_machine_room() -> void:
 						(LiftCfg.M_SHEAVE_R - 0.13) * cos(a2)), Vis.mat("motor"))
 		sp.rotation = Vector3(a2, 0, 0)
 
-	# --- fren diski + iki elektromanyetik kaliper ---------------------------
+	# --- brake disc + two electromagnetic calipers --------------------------
 	brake_disc = Node3D.new()
 	mroot.add_child(brake_disc)
 	var bd := Vis.cyl(brake_disc, 0.255, 0.022, Vector3(0.34, 0, 0),
@@ -387,35 +389,36 @@ func _build_machine_room() -> void:
 	var bh := Vis.cyl(brake_disc, 0.09, 0.06, Vector3(0.34, 0, 0), Vis.mat("steel"))
 	bh.rotation_degrees = Vector3(0, 0, 90)
 
-	# Kaliper diskin cemberini kavrar; iki pabuc diskin iki duz yuzune basar.
-	# Bobin enerjilenince (fren cozulunce) pabuclar geri ceker.
+	# The caliper straddles the rim of the disc; its two shoes press on the two
+	# flat faces. Energising the coil (releasing the brake) pulls them back.
 	for sz3: float in [-1.0, 1.0]:
 		var cal := Node3D.new()
 		cal.position = Vector3(0.34, 0, sz3 * 0.215)
 		mroot.add_child(cal)
-		# bobin / govde (diskin disinda kalir)
+		# coil / body (stays outside the disc)
 		Vis.box(cal, Vector3(0.15, 0.17, 0.11), Vector3(0, 0, sz3 * 0.085),
 				Vis.mat("caliper"))
 		Vis.box(cal, Vector3(0.055, 0.09, 0.07), Vector3(0, 0, sz3 * 0.02),
 				Vis.mat("motor_fin"))
 		for sxp: float in [-1.0, 1.0]:
-			# pabuc kolu
+			# shoe arm
 			Vis.box(cal, Vector3(0.022, 0.12, 0.08), Vector3(sxp * 0.052, 0, sz3 * 0.045),
 					Vis.mat("caliper"))
-			# balata
+			# lining
 			var pad := Vis.box(cal, Vector3(0.016, 0.10, 0.075),
 					Vector3(sxp * BRAKE_ON_X, 0, 0), Vis.mat("rubber"))
 			brake_pads.append(pad)
 			_brake_pad_sign.append(sxp)
 
-	# --- enkoder (mil ucu) ---------------------------------------------------
+	# --- encoder (shaft end) ------------------------------------------------
 	var enc := Vis.cyl(mroot, 0.055, 0.07, Vector3(0.52, 0, 0), Vis.mat("panel"))
 	enc.rotation_degrees = Vector3(0, 0, 90)
 	Vis.box(mroot, Vector3(0.03, 0.03, 0.10), Vector3(0.52, 0.05, 0.05),
 			Vis.mat("inox_line"))
 
 	# ==========================================================================
-	# Saptirma makarasi: kasnaktan inen hatti karsi agirlik hattina tasir
+	# Deflector sheave: carries the line off the traction sheave over to the
+	# counterweight line
 	# ==========================================================================
 	var dz := (tz - LiftCfg.M_SHEAVE_R) - LiftCfg.M_DEFLECT_R
 	deflector = Node3D.new()
@@ -429,7 +432,7 @@ func _build_machine_room() -> void:
 		var fl := Vis.cyl(deflector, LiftCfg.M_DEFLECT_R, 0.009, Vector3(fx, 0, 0),
 				Vis.mat("steel_dark"))
 		fl.rotation_degrees = Vector3(0, 0, 90)
-	# makara yataklama braketi
+	# sheave bearing bracket
 	Vis.box(root, Vector3(rope_w + 0.30, 0.06, 0.10),
 			Vector3(0, sheave_y - LiftCfg.M_DEFLECT_DY + LiftCfg.M_DEFLECT_R + 0.10, dz),
 			Vis.mat("steel_dark"))
@@ -440,11 +443,11 @@ func _build_machine_room() -> void:
 				Vis.mat("steel_dark"))
 
 	# ==========================================================================
-	# Hiz regulatoru (governor) — kendi halat ilmegi ile
+	# Overspeed governor - with its own rope loop
 	# ==========================================================================
 	_build_governor(root)
 
-	# makine bolumu aydinlatmasi
+	# machine space lighting
 	var l := OmniLight3D.new()
 	l.position = Vector3(0.30, sheave_y + 0.50, 0.55)
 	l.light_energy = 1.5
@@ -458,25 +461,26 @@ func _build_machine_room() -> void:
 	l2.light_color = Color(0.92, 0.95, 1.0)
 	l2.shadow_enabled = false
 	root.add_child(l2)
-	# armatur govdesi
+	# fitting body
 	Vis.box(root, Vector3(0.50, 0.05, 0.16), Vector3(0.30, sheave_y + 0.62, 0.55),
 			Vis.emissive(Color(1.0, 0.97, 0.90), 0.9))
 
 
-## Halat n'in X konumu (demet ortalanmis)
+## X position of rope n (the bundle is centred)
 func _rope_x(i: int) -> float:
 	return (float(i) - (LiftCfg.ROPE_COUNT - 1) * 0.5) * LiftCfg.ROPE_PITCH
 
 
-## Hiz regulatoru: tepede kasnak, kuyu dibinde gergi makarasi, arada kapali
-## halat ilmegi. Kabine baglanan kavrama halat boyunca kabinle birlikte gider.
+## Overspeed governor: a sheave at the top, a tension pulley in the pit and a
+## closed rope loop between them. The clamp attached to the car rides along
+## the rope with the car.
 func _build_governor(root: Node3D) -> void:
 	var gz := LiftCfg.M_GOV_ROPE_Z
 	var gx := HALF_W - 0.15
 	var top := sheave_y - 0.10
 	var bot := -LiftCfg.M_PIT_DEPTH + 0.55
 
-	# regulator govdesi
+	# governor body
 	Vis.box(root, Vector3(0.16, 0.34, 0.30), Vector3(gx, top + 0.30, gz),
 			Vis.mat("panel"))
 	governor = Node3D.new()
@@ -490,7 +494,7 @@ func _build_governor(root: Node3D) -> void:
 				Vector3.ZERO, Vis.mat("steel_dark"))
 		sp.rotation = Vector3(a, 0, 0)
 
-	# gergi makarasi (kuyu dibi)
+	# tension pulley (in the pit)
 	gov_tension = Node3D.new()
 	gov_tension.position = Vector3(gx, bot, gz)
 	root.add_child(gov_tension)
@@ -502,7 +506,7 @@ func _build_governor(root: Node3D) -> void:
 	Vis.box(root, Vector3(0.26, 0.05, 0.26), Vector3(gx, bot - 0.52, gz),
 			Vis.mat("steel_dark"))
 
-	# kapali halat ilmegi: iki dusey kol + ustte/altta yaylar
+	# the closed rope loop: two vertical legs + the arcs top and bottom
 	var r_out := LiftCfg.M_GOV_R
 	for sz: float in [-1.0, 1.0]:
 		Vis.rod(root, Vector3(gx, top, gz + sz * r_out),
@@ -513,7 +517,7 @@ func _build_governor(root: Node3D) -> void:
 	Vis.arc_yz(root, gx, bot, gz, LiftCfg.M_GOV_R * 0.85, 180.0, 360.0, 10,
 			LiftCfg.M_ROPE_R * 0.8, Vis.mat("rope"))
 
-	# kabine baglanan kavrama (kabinle birlikte hareket eder)
+	# the clamp attached to the car (it travels with the car)
 	gov_clamp = Node3D.new()
 	root.add_child(gov_clamp)
 	Vis.box(gov_clamp, Vector3(0.09, 0.12, 0.07), Vector3(gx, 0, gz + r_out),
@@ -522,7 +526,7 @@ func _build_governor(root: Node3D) -> void:
 			Vector3(HALF_W - 0.06, -0.10, gz + r_out + 0.02), 0.012, Vis.mat("steel"))
 
 
-## Kumanda panosu — MRL duzeninde en ust kat holunde bulunur.
+## Control panel - in an MRL layout it sits at the top landing.
 func _build_control_panel(root: Node3D) -> void:
 	var pan := Node3D.new()
 	pan.position = Vector3(-LiftCfg.M_HALL_W * 0.5 + 0.20, 0.0,
@@ -535,11 +539,11 @@ func _build_control_panel(root: Node3D) -> void:
 	var t := Vis.label(pan, "CODESYS PLC", Vector3(0, 1.80, 0.14), 0.0009,
 			Color(0.75, 0.85, 0.95))
 	t.outline_size = 0
-	var t2 := Vis.label(pan, "ASANSOR KUMANDA PANOSU", Vector3(0, 0.30, 0.14), 0.00045,
+	var t2 := Vis.label(pan, "ELEVATOR CONTROLLER", Vector3(0, 0.30, 0.14), 0.00045,
 			Color(0.55, 0.60, 0.66))
 	t2.outline_size = 0
 
-	# durum LED'leri
+	# status LEDs
 	var names := ["DRIVE", "RUN", "DOOR", "FAULT", "LINK", "HB"]
 	for i in range(6):
 		var led := Vis.cyl(pan, 0.026, 0.014,
@@ -551,7 +555,7 @@ func _build_control_panel(root: Node3D) -> void:
 				Color(0.70, 0.74, 0.80))
 		nl.outline_size = 0
 
-	# terminal siralari (gorsel detay)
+	# terminal rows (visual detail)
 	for r in range(4):
 		Vis.box(pan, Vector3(0.70, 0.05, 0.03), Vector3(0, 1.15 - r * 0.16, 0.15),
 				Vis.mat("steel_brushed"))
@@ -564,12 +568,12 @@ func _build_counterweight() -> void:
 	add_child(counterweight)
 	Vis.box(counterweight, Vector3(LiftCfg.M_CWT_W, LiftCfg.M_CWT_H, LiftCfg.M_CWT_D),
 			Vector3.ZERO, Vis.mat("cwt"))
-	# agirlik dilimleri
+	# weight slabs
 	for i in range(7):
 		Vis.box(counterweight, Vector3(LiftCfg.M_CWT_W + 0.02, 0.02, LiftCfg.M_CWT_D + 0.02),
 				Vector3(0, -LiftCfg.M_CWT_H * 0.5 + 0.12 + i * 0.21, 0),
 				Vis.mat("steel_dark"))
-	# --- halat baglanti kancasi (hitch plate + yaylar) ----------------------
+	# --- rope hitch (hitch plate + springs) ---------------------------------
 	var rope_w: float = (LiftCfg.ROPE_COUNT - 1) * LiftCfg.ROPE_PITCH
 	var chy := LiftCfg.M_CWT_H * 0.5 + 0.20
 	Vis.box(counterweight, Vector3(rope_w + 0.14, 0.028, 0.12),
@@ -583,7 +587,7 @@ func _build_counterweight() -> void:
 		Vis.cyl(counterweight, 0.006, 0.18, Vector3(rx, chy - 0.05, 0), Vis.mat("steel"))
 		Vis.cyl(counterweight, 0.010, 0.024, Vector3(rx, chy + 0.018, 0),
 				Vis.mat("steel_dark"))
-	# aski cercevesi (yan dikmeler)
+	# suspension frame (side stiles)
 	for sxc: float in [-1.0, 1.0]:
 		Vis.box(counterweight, Vector3(0.05, 0.42, LiftCfg.M_CWT_D + 0.05),
 				Vector3(sxc * (LiftCfg.M_CWT_W * 0.5 - 0.03),
@@ -592,12 +596,12 @@ func _build_counterweight() -> void:
 			Vector3(0, LiftCfg.M_CWT_H * 0.5 + 0.06, 0), Vis.mat("steel"))
 
 
-## Askı halatlari — 1:1 roping:
-##   kabin kancasi -> dusey -> tahrik kasnagi uzerinde 180 derece sarim ->
-##   dusey -> saptirma makarasi uzerinde 180 derece sarim -> dusey ->
-##   karsi agirlik kancasi
-## Kasnaklar uzerindeki yaylar sabit geometridir; yalnizca dusey kollarin
-## boyu her karede guncellenir.
+## Suspension ropes - 1:1 roping:
+##   car hitch -> vertical -> 180 degrees around the traction sheave ->
+##   vertical -> 180 degrees around the deflector sheave -> vertical ->
+##   counterweight hitch
+## The arcs over the sheaves are fixed geometry; only the length of the
+## vertical legs is updated each frame.
 func _build_ropes() -> void:
 	var tz := LiftCfg.M_ROPE_Z_CAR - LiftCfg.M_SHEAVE_R
 	var dz := (tz - LiftCfg.M_SHEAVE_R) - LiftCfg.M_DEFLECT_R
@@ -611,20 +615,20 @@ func _build_ropes() -> void:
 		var rx := _rope_x(i)
 		_rope_x_pos.append(rx)
 
-		# --- tahrik kasnagi uzerinde sarim (kabin tarafi -> karsi taraf) ----
+		# --- wrap over the traction sheave (car side -> cwt side) -----------
 		Vis.arc_yz(ropes, rx, sheave_y, tz, LiftCfg.M_SHEAVE_R, 0.0, 180.0, 14,
 				LiftCfg.M_ROPE_R, Vis.mat("rope"))
-		# --- kasnaktan saptirma makarasina inen kisa kol --------------------
+		# --- the short leg from the sheave down to the deflector ------------
 		Vis.rod(ropes, Vector3(rx, sheave_y, tz - LiftCfg.M_SHEAVE_R),
 				Vector3(rx, dy, dz + LiftCfg.M_DEFLECT_R),
 				LiftCfg.M_ROPE_R, Vis.mat("rope"))
-		# --- saptirma makarasi uzerinde sarim -------------------------------
+		# --- wrap over the deflector sheave ---------------------------------
 		Vis.arc_yz(ropes, rx, dy, dz, LiftCfg.M_DEFLECT_R, 0.0, 180.0, 12,
 				LiftCfg.M_ROPE_R, Vis.mat("rope"))
 
-		# --- dinamik dusey kollar -------------------------------------------
-		# Bir taraftaki 5 halatin boyu her zaman ayni; tek mesh'i paylasirlar.
-		# Boylece her karede 10 degil 2 mesh guncellenir.
+		# --- the dynamic vertical legs ---------------------------------------
+		# The 5 ropes on one side are always the same length, so they share a
+		# single mesh. That means 2 mesh updates per frame instead of 10.
 		var rc := Vis.cyl(ropes, LiftCfg.M_ROPE_R, 1.0,
 				Vector3(rx, 0, LiftCfg.M_ROPE_Z_CAR), Vis.mat("rope"), "", false)
 		if _rope_car_mesh == null:
@@ -643,7 +647,7 @@ func _build_ropes() -> void:
 
 
 # =============================================================================
-# CANLI GUNCELLEME
+# LIVE UPDATE
 # =============================================================================
 func set_landing_door(f: int, amount: float) -> void:
 	if f < 0 or f >= landing_left.size():
@@ -660,11 +664,11 @@ func close_other_doors(except_floor: int) -> void:
 
 
 func update_ropes(car_y: float, cwt_y: float) -> void:
-	# Kabin tarafi: tahrik kasnaginin +Z teget noktasindan kabin kancasina.
-	# Bitis kotu, kanca plakasindaki halat sokesinin icine denk gelir.
+	# Car side: from the +Z tangent point of the traction sheave to the car
+	# hitch. The lower end lands inside the rope socket on the hitch plate.
 	var top_car := car_y + LiftCfg.M_CAR_H + 0.355
 	var len_car := maxf(0.02, sheave_y - top_car)
-	# Karsi agirlik tarafi: saptirma makarasinin -Z teget noktasindan asagi
+	# Counterweight side: down from the -Z tangent point of the deflector
 	var dy := sheave_y - LiftCfg.M_DEFLECT_DY
 	var top_cwt := cwt_y + LiftCfg.M_CWT_H * 0.5 + 0.215
 	var len_cwt := maxf(0.02, dy - top_cwt)
@@ -679,14 +683,14 @@ func update_ropes(car_y: float, cwt_y: float) -> void:
 
 	counterweight.position = Vector3(0, cwt_y, LiftCfg.M_CWT_Z)
 
-	# regulator kavramasi kabinle birlikte gider
+	# the governor clamp travels with the car
 	if gov_clamp != null:
 		gov_clamp.position.y = car_y + LiftCfg.M_CAR_H * 0.5
 
 
-## Kasnaklari halat hiziyla dondurur.
-## speed_mms > 0 = kabin yukari; bu durumda kabin tarafindaki halat yukari
-## hareket eder, dolayisiyla kasnagin +Z yuzu yukari gider (aci azalir).
+## Spins the sheaves at rope speed.
+## speed_mms > 0 = car going up; the rope on the car side then moves up, so
+## the +Z face of the sheave rises (the angle decreases).
 func spin_sheave(speed_mms: float, dt: float) -> void:
 	var v := speed_mms * 0.001                      # m/s
 	_sheave_angle -= v / LiftCfg.M_SHEAVE_R * dt
@@ -702,7 +706,7 @@ func spin_sheave(speed_mms: float, dt: float) -> void:
 		gov_tension.rotation.x -= v / (LiftCfg.M_GOV_R * 0.85) * dt
 
 
-## Fren balatalarini konumlandirir (PLC'nin fren-coz cikisina gore).
+## Positions the brake shoes (from the PLC brake-release output).
 func set_brake(released: bool) -> void:
 	var x := BRAKE_OFF_X if released else BRAKE_ON_X
 	for i in range(brake_pads.size()):
@@ -717,7 +721,7 @@ func set_display(f: int, text: String, arrow: int) -> void:
 
 var _led_state: Array[bool] = [false, false, false, false, false, false]
 
-## Her karede cagrilir; yalnizca degisen LED'in materyali guncellenir.
+## Called every frame; only the material of an LED that changed is updated.
 func set_panel_leds(bits: Array) -> void:
 	for i in range(mini(bits.size(), panel_leds.size())):
 		var on: bool = bits[i]

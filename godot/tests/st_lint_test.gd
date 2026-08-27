@@ -1,30 +1,30 @@
 extends SceneTree
 
-## ST STATIK DENETIMI
+## ST STATIC CHECK
 ##
-## codesys/*.st dosyalari CODESYS olmadan derlenemez. Bu denetim, derleyicinin
-## yakalayacagi hatalarin buyuk bolumunu kaynak uzerinden yakalar:
+## The codesys/*.st files cannot be compiled without CODESYS. This check
+## catches most of what the compiler would catch, straight from the source:
 ##
-##   A) Blok dengesi        IF/CASE/FOR/WHILE/VAR_*/TYPE/STRUCT/METHOD
-##   B) Sabitler            kullanilan her C_* GVL_Config.st'de tanimli mi
-##   C) Enum literalleri    FLT_/LS_/DS_/DIR_ DUT_Types.st'de var mi
-##   D) Struct alanlari     stIn./stOut. alanlari DUT'ta tanimli mi
-##   E) Metot cagrilari     fbX.Metot() hedef FB'de METHOD olarak var mi
-##   F) FB parametreleri    fbX(ad := ...) icindeki ad, FB'nin girisi mi
+##   A) Block balance       IF/CASE/FOR/WHILE/VAR_*/TYPE/STRUCT/METHOD
+##   B) Constants           is every C_* used declared in GVL_Config.st
+##   C) Enum literals       do FLT_/LS_/DS_/DIR_ exist in DUT_Types.st
+##   D) Struct fields       are stIn./stOut. fields declared in the DUT
+##   E) Method calls        does fbX.Method() exist as a METHOD on the FB
+##   F) FB parameters       is the name in fbX(name := ...) an input of the FB
 ##
-## NE YAPMAZ: tip denetimi, ifade dogrulugu, gercek derleme. Bunlar ancak
-## CODESYS'te derleyerek dogrulanir.
+## WHAT IT DOES NOT DO: type checking, expression validity, a real build.
+## Those can only be verified by compiling in CODESYS.
 ##
-## Calistirma:
+## Run with:
 ##   godot --headless --path <godot> --script res://tests/st_lint_test.gd
 
 var failures := 0
 var st_dir := ""
-var files: Dictionary = {}          # dosya adi -> yorumlari temizlenmis metin
+var files: Dictionary = {}          # file name -> text with comments stripped
 
 
 func _initialize() -> void:
-	print("=== ST STATIK DENETIMI ===\n")
+	print("=== ST STATIC CHECK ===\n")
 	st_dir = ProjectSettings.globalize_path("res://").path_join("../codesys")
 
 	if not _load_files():
@@ -38,21 +38,21 @@ func _initialize() -> void:
 	check_method_calls()
 	check_fb_parameters()
 
-	print("\n=== SONUC: %s ===" % ("ST KAYNAGI TUTARLI" if failures == 0
-			else "%d SORUN" % failures))
+	print("\n=== RESULT: %s ===" % ("ST SOURCE IS CONSISTENT" if failures == 0
+			else "%d PROBLEMS" % failures))
 	quit(1 if failures > 0 else 0)
 
 
 func fail(msg: String) -> void:
 	failures += 1
-	print("  [HATA ] %s" % msg)
+	print("  [FAIL ] %s" % msg)
 
 
 func ok_line(msg: String) -> void:
-	print("  [gecti] %s" % msg)
+	print("  [ ok  ] %s" % msg)
 
 
-## (* ... *) ve // ... yorumlarini temizler
+## Strips (* ... *) and // ... comments
 func strip_comments(src: String) -> String:
 	var re_block := RegEx.new()
 	re_block.compile("(?s)\\(\\*.*?\\*\\)")
@@ -65,7 +65,7 @@ func strip_comments(src: String) -> String:
 func _load_files() -> bool:
 	var d := DirAccess.open(st_dir)
 	if d == null:
-		fail("codesys klasoru acilamadi: %s" % st_dir)
+		fail("could not open the codesys folder: %s" % st_dir)
 		return false
 	for f in d.get_files():
 		if not f.ends_with(".st"):
@@ -76,7 +76,7 @@ func _load_files() -> bool:
 		files[f] = strip_comments(fa.get_as_text())
 		fa.close()
 	if files.is_empty():
-		fail("hic .st dosyasi bulunamadi")
+		fail("no .st files found")
 		return false
 	return true
 
@@ -88,14 +88,14 @@ func count_word(src: String, word: String) -> int:
 
 
 # =============================================================================
-# A) Blok dengesi
+# A) Block balance
 # =============================================================================
 func check_block_balance() -> void:
-	print("A) Blok dengesi")
+	print("A) Block balance")
 
-	# NOT: bu dosyalar CODESYS'e yapistirmak icin hazirlanmistir; POU govdesi
-	# ile bildirimi ayni dosyadadir, bu yuzden FUNCTION_BLOCK/PROGRAM icin
-	# END_ karsiligi aranmaz. METHOD'un END_METHOD'u vardir.
+	# NOTE: these files are written to be pasted into CODESYS; the POU body and
+	# its declaration live in the same file, so no END_ counterpart is expected
+	# for FUNCTION_BLOCK/PROGRAM. METHOD does have its END_METHOD.
 	var pairs := [
 		["IF", "END_IF"], ["CASE", "END_CASE"], ["FOR", "END_FOR"],
 		["WHILE", "END_WHILE"], ["REPEAT", "END_REPEAT"],
@@ -109,7 +109,7 @@ func check_block_balance() -> void:
 			var o := count_word(src, p[0])
 			var c := count_word(src, p[1])
 			if o != c:
-				fail("%s: %s=%d fakat %s=%d" % [fname, p[0], o, p[1], c])
+				fail("%s: %s=%d but %s=%d" % [fname, p[0], o, p[1], c])
 				bad += 1
 
 		# VAR / VAR_INPUT / VAR_OUTPUT / VAR_IN_OUT / VAR_GLOBAL  <-> END_VAR
@@ -118,22 +118,22 @@ func check_block_balance() -> void:
 		var nv := re_var.search_all(src).size()
 		var ne := count_word(src, "END_VAR")
 		if nv != ne:
-			fail("%s: VAR blogu=%d fakat END_VAR=%d" % [fname, nv, ne])
+			fail("%s: VAR blocks=%d but END_VAR=%d" % [fname, nv, ne])
 			bad += 1
 
 	if bad == 0:
-		ok_line("%d dosyada blok dengesi tamam" % files.size())
+		ok_line("block balance is fine in %d files" % files.size())
 
 
 # =============================================================================
-# B) Sabitler
+# B) Constants
 # =============================================================================
 func check_constants() -> void:
-	print("\nB) Sabitler (C_*)")
+	print("\nB) Constants (C_*)")
 
 	var cfg: String = files.get("GVL_Config.st", "")
 	if cfg == "":
-		fail("GVL_Config.st bulunamadi")
+		fail("GVL_Config.st not found")
 		return
 
 	var declared := {}
@@ -153,21 +153,21 @@ func check_constants() -> void:
 				var key := "%s|%s" % [fname, name]
 				if not seen.has(key):
 					seen[key] = true
-					fail("%s: %s GVL_Config.st'de tanimli degil" % [fname, name])
+					fail("%s: %s is not declared in GVL_Config.st" % [fname, name])
 					bad += 1
 	if bad == 0:
-		ok_line("%d sabit tanimi, tum kullanimlar cozumlendi" % declared.size())
+		ok_line("%d constant declarations, every use resolved" % declared.size())
 
 
 # =============================================================================
-# C) Enum literalleri
+# C) Enum literals
 # =============================================================================
 func check_enum_literals() -> void:
-	print("\nC) Enum literalleri")
+	print("\nC) Enum literals")
 
 	var dut: String = files.get("DUT_Types.st", "")
 	if dut == "":
-		fail("DUT_Types.st bulunamadi")
+		fail("DUT_Types.st not found")
 		return
 
 	var declared := {}
@@ -187,17 +187,17 @@ func check_enum_literals() -> void:
 				var key := "%s|%s" % [fname, name]
 				if not seen.has(key):
 					seen[key] = true
-					fail("%s: %s DUT_Types.st'de tanimli degil" % [fname, name])
+					fail("%s: %s is not declared in DUT_Types.st" % [fname, name])
 					bad += 1
 	if bad == 0:
-		ok_line("%d enum literali, tum kullanimlar cozumlendi" % declared.size())
+		ok_line("%d enum literals, every use resolved" % declared.size())
 
 
 # =============================================================================
-# D) Struct alanlari
+# D) Struct fields
 # =============================================================================
 func check_struct_fields() -> void:
-	print("\nD) Struct alanlari (stIn / stOut)")
+	print("\nD) Struct fields (stIn / stOut)")
 
 	var dut: String = files.get("DUT_Types.st", "")
 	if dut == "":
@@ -206,14 +206,14 @@ func check_struct_fields() -> void:
 	var fin := _struct_fields(dut, "ST_LiftInputs")
 	var fout := _struct_fields(dut, "ST_LiftOutputs")
 	if fin.is_empty() or fout.is_empty():
-		fail("ST_LiftInputs / ST_LiftOutputs ayristirilamadi")
+		fail("ST_LiftInputs / ST_LiftOutputs could not be parsed")
 		return
 
 	var bad := 0
 	bad += _check_fields("stIn", fin)
 	bad += _check_fields("stOut", fout)
 	if bad == 0:
-		ok_line("stIn (%d alan) ve stOut (%d alan) kullanimlari cozumlendi"
+		ok_line("stIn (%d fields) and stOut (%d fields) uses all resolved"
 				% [fin.size(), fout.size()])
 
 
@@ -243,18 +243,18 @@ func _check_fields(prefix: String, fields: Dictionary) -> int:
 				var key := "%s|%s.%s" % [fname, prefix, field]
 				if not seen.has(key):
 					seen[key] = true
-					fail("%s: %s.%s struct'ta yok" % [fname, prefix, field])
+					fail("%s: %s.%s is not in the struct" % [fname, prefix, field])
 					bad += 1
 	return bad
 
 
 # =============================================================================
-# E) Metot cagrilari
+# E) Method calls
 # =============================================================================
 func check_method_calls() -> void:
-	print("\nE) FB metot cagrilari")
+	print("\nE) FB method calls")
 
-	var fb_methods := {}      # FB_Xxx -> {metot: true}
+	var fb_methods := {}      # FB_Xxx -> {method: true}
 	for fname in files:
 		if not fname.begins_with("FB_"):
 			continue
@@ -284,14 +284,14 @@ func check_method_calls() -> void:
 				var key := "%s|%s.%s" % [fname, iname, meth]
 				if not seen.has(key):
 					seen[key] = true
-					fail("%s: %s.%s() -> %s icinde METHOD yok"
+					fail("%s: %s.%s() -> no such METHOD in %s"
 							% [fname, iname, meth, fbtype])
 					bad += 1
 	if bad == 0:
-		ok_line("tum fbX.Metot() cagrilari hedef FB'de bulundu")
+		ok_line("every fbX.Method() call was found on its FB")
 
 
-## "fbSafety : FB_Safety;" bildirimlerinden ornek -> tip haritasi
+## Builds an instance -> type map from "fbSafety : FB_Safety;" declarations
 func _instance_types(src: String) -> Dictionary:
 	var out := {}
 	var re := RegEx.new()
@@ -302,12 +302,12 @@ func _instance_types(src: String) -> Dictionary:
 
 
 # =============================================================================
-# F) FB cagri parametreleri
+# F) FB call parameters
 # =============================================================================
 func check_fb_parameters() -> void:
-	print("\nF) FB cagri parametreleri")
+	print("\nF) FB call parameters")
 
-	# her FB'nin girdi/cikti degisken adlari
+	# the input/output variable names of each FB
 	var fb_params := {}
 	for fname in files:
 		if not fname.begins_with("FB_"):
@@ -318,7 +318,7 @@ func check_fb_parameters() -> void:
 	var bad := 0
 	for fname in files:
 		var inst := _instance_types(files[fname])
-		# cok satirli govde cagrisi:  fbX( ad := ..., ad2 := ... );
+		# multi-line body call:  fbX( name := ..., name2 := ... );
 		var re_call := RegEx.new()
 		re_call.compile("(?s)\\b(fb[A-Za-z0-9_]*)\\s*\\(([^;]*?)\\)\\s*;")
 		for m in re_call.search_all(files[fname]):
@@ -334,14 +334,14 @@ func check_fb_parameters() -> void:
 			for a in re_named.search_all(args):
 				var pname := a.get_string(1)
 				if not fb_params[fbtype].has(pname):
-					fail("%s: %s(%s := ...) -> %s icinde boyle bir giris yok"
+					fail("%s: %s(%s := ...) -> no such input in %s"
 							% [fname, iname, pname, fbtype])
 					bad += 1
 	if bad == 0:
-		ok_line("tum FB cagri parametreleri hedef FB'de tanimli")
+		ok_line("every FB call parameter is declared on its FB")
 
 
-## FB'nin VAR_INPUT / VAR_IN_OUT / VAR_OUTPUT bloklarindaki degisken adlari
+## The variable names in an FB's VAR_INPUT / VAR_IN_OUT / VAR_OUTPUT blocks
 func _fb_io_names(src: String) -> Dictionary:
 	var out := {}
 	var re_block := RegEx.new()

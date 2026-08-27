@@ -1,13 +1,13 @@
 extends SceneTree
 
-## ModbusClient protokol testi.
+## ModbusClient protocol test.
 ##
-## Godot'un kendi TCPServer'i ile minimal bir Modbus TCP slave (CODESYS
-## "Modbus TCP Slave Device" taklidi) ayaga kaldirilir; ModbusClient ona
-## FC16 ile yazar, FC04 ile okur. Cerceve olusturma/cozme dogrulanir.
+## A minimal Modbus TCP slave (imitating the CODESYS "Modbus TCP Slave Device")
+## is brought up on Godot's own TCPServer; ModbusClient writes to it with FC16
+## and reads from it with FC04. Frame building and parsing are verified.
 ##
-## Calistirma:
-##   godot --headless --path <godot klasoru> --script res://tests/modbus_test.gd
+## Run with:
+##   godot --headless --path <godot folder> --script res://tests/modbus_test.gd
 
 const PORT := 15020
 
@@ -15,27 +15,27 @@ var server := TCPServer.new()
 var peer: StreamPeerTCP
 var rx := PackedByteArray()
 
-# Slave tarafindaki register alani
-var holding := PackedInt32Array()      # master yazar (PLC %IW)
-var input_regs := PackedInt32Array()   # master okur  (PLC %QW)
+# The register area on the slave side
+var holding := PackedInt32Array()      # the master writes  (PLC %IW)
+var input_regs := PackedInt32Array()   # the master reads   (PLC %QW)
 
 var failures := 0
 var write_count := 0
 var read_count := 0
-var last_read := PackedInt32Array()   # lambda'lar dis degiskene yazamaz, uye tutuyoruz
+var last_read := PackedInt32Array()   # lambdas cannot write to an outer local, so keep it as a member
 
 
 func _initialize() -> void:
-	print("=== MODBUS TCP PROTOKOL TESTI ===\n")
+	print("=== MODBUS TCP PROTOCOL TEST ===\n")
 
 	holding.resize(16)
 	input_regs.resize(16)
-	# slave, okunacak sabit degerleri hazirlasin
+	# let the slave prepare the fixed values to be read
 	for i in 16:
 		input_regs[i] = 1000 + i * 7
 
 	var err := server.listen(PORT, "127.0.0.1")
-	check("slave dinlemede (port %d)" % PORT, err == OK, "(err=%s)" % error_string(err))
+	check("slave listening (port %d)" % PORT, err == OK, "(err=%s)" % error_string(err))
 	if err != OK:
 		quit(1)
 		return
@@ -43,63 +43,63 @@ func _initialize() -> void:
 	var client := ModbusClient.new()
 	client.open("127.0.0.1", PORT, 1)
 
-	# --- baglanti -----------------------------------------------------------
+	# --- connection ---------------------------------------------------------
 	var connected := pump(func(): return client.online, client, 3.0)
-	check("master baglandi", connected)
+	check("master connected", connected)
 
-	# --- FC16: coklu register yazma ----------------------------------------
+	# --- FC16: write multiple registers -------------------------------------
 	var vals := [0x0021, 0x0004, 0x0008, 0x0200, 0x0010, 0x00D8,
 			9600, 1600, 1000, 75, 1234]
 	client.queue_write(0, vals)
 	var written := pump(func(): return write_count > 0, client, 3.0)
-	check("FC16 yazma yaniti alindi", written)
+	check("FC16 write response received", written)
 
 	var ok_vals := true
 	var detail := ""
 	for i in range(vals.size()):
 		if holding[i] != vals[i]:
 			ok_vals = false
-			detail = "(reg%d: beklenen %d, gelen %d)" % [i, vals[i], holding[i]]
+			detail = "(reg%d: expected %d, got %d)" % [i, vals[i], holding[i]]
 			break
-	check("yazilan 11 register slave'e dogru ulasti", ok_vals, detail)
+	check("the 11 written registers reached the slave intact", ok_vals, detail)
 
-	# --- FC04: input register okuma ----------------------------------------
+	# --- FC04: read input registers -----------------------------------------
 	client.queue_read(0, 16, ModbusClient.FC_READ_INPUT)
 	var read_ok := pump(func(): return read_count > 0, client, 3.0)
 	var got := last_read
-	check("FC04 okuma yaniti alindi", read_ok)
-	check("16 register geldi", got.size() == 16, "(gelen=%d)" % got.size())
+	check("FC04 read response received", read_ok)
+	check("16 registers returned", got.size() == 16, "(got=%d)" % got.size())
 
 	var ok_read := got.size() == 16
 	if ok_read:
 		for i in 16:
 			if got[i] != input_regs[i]:
 				ok_read = false
-				detail = "(reg%d: beklenen %d, gelen %d)" % [i, input_regs[i], got[i]]
+				detail = "(reg%d: expected %d, got %d)" % [i, input_regs[i], got[i]]
 				break
-	check("okunan degerler dogru", ok_read, detail)
+	check("the values read back are correct", ok_read, detail)
 
-	# --- 16 bit sinir degerleri --------------------------------------------
+	# --- 16-bit boundary values ---------------------------------------------
 	client.queue_write(0, [0xFFFF, 0x8000, 0x0001, 0x0000])
 	pump(func(): return write_count > 1, client, 3.0)
-	check("16-bit sinir degerleri korundu",
+	check("16-bit boundary values preserved",
 			holding[0] == 0xFFFF and holding[1] == 0x8000
 			and holding[2] == 1 and holding[3] == 0,
 			"(%d %d %d %d)" % [holding[0], holding[1], holding[2], holding[3]])
 
-	# --- istatistik ---------------------------------------------------------
-	check("tx/rx sayaclari tutarli", client.stat_tx == client.stat_rx,
+	# --- statistics ---------------------------------------------------------
+	check("tx/rx counters agree", client.stat_tx == client.stat_rx,
 			"(tx=%d rx=%d, timeout=%d)" % [client.stat_tx, client.stat_rx, client.stat_timeout])
-	check("zaman asimi yok", client.stat_timeout == 0)
+	check("no timeouts", client.stat_timeout == 0)
 
 	client.close()
-	print("\n=== SONUC: %s ===" % ("TUM TESTLER GECTI" if failures == 0
-			else "%d TEST BASARISIZ" % failures))
+	print("\n=== RESULT: %s ===" % ("ALL TESTS PASSED" if failures == 0
+			else "%d TESTS FAILED" % failures))
 	quit(1 if failures > 0 else 0)
 
 
 # =============================================================================
-## Slave ve master'i kosul saglanana kadar birlikte cevirir.
+## Turns the slave and the master together until the condition is met.
 func pump(cond: Callable, client: ModbusClient, timeout: float) -> bool:
 	var t := 0.0
 	while t < timeout:
@@ -208,7 +208,7 @@ func _handle(f: PackedByteArray) -> void:
 
 func check(name: String, ok: bool, detail := "") -> void:
 	if ok:
-		print("  [gecti] %s %s" % [name, detail])
+		print("  [ ok  ] %s %s" % [name, detail])
 	else:
 		failures += 1
-		print("  [HATA ] %s %s" % [name, detail])
+		print("  [FAIL ] %s %s" % [name, detail])

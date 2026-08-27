@@ -1,18 +1,18 @@
 class_name Vis
 extends RefCounted
 
-## Materyal kutuphanesi + prosedurel mesh yardimcilari.
-## Tum 3D geometri kodla uretilir; sahnede elle yerlestirilmis dugum yoktur.
+## Material library + procedural mesh helpers.
+## All 3D geometry is generated in code; nothing is placed by hand in the scene.
 
 static var _cache: Dictionary = {}
 static var _tex_cache: Dictionary = {}
 
 
 # =============================================================================
-# Prosedurel dokular — gercek malzeme hissi icin
+# Procedural textures — for a real material feel
 # =============================================================================
 
-## Firçalanmis paslanmaz: tek yonde ince cizgiler (roughness haritasi).
+## Brushed stainless: fine unidirectional lines (roughness map).
 static func tex_brushed() -> ImageTexture:
 	if _tex_cache.has("brushed"):
 		return _tex_cache["brushed"]
@@ -20,13 +20,13 @@ static func tex_brushed() -> ImageTexture:
 	var img := Image.create(n, n, true, Image.FORMAT_RGB8)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 20240816
-	# her sutun icin bir taban parlaklik -> dikey firça izi
+	# a base brightness per column -> vertical brush grain
 	var cols := PackedFloat32Array()
 	cols.resize(n)
 	for x in n:
 		cols[x] = rng.randf_range(0.80, 1.0)
 	for x in n:
-		# komsu sutunlarla yumusatma — gercek satine dokusu incedir
+		# smooth against neighbouring columns — real satin grain is fine
 		var v := (cols[x] * 2.0 + cols[(x + n - 1) % n] + cols[(x + 1) % n]) * 0.25
 		for y in n:
 			var g: float = clampf(v + rng.randf_range(-0.018, 0.018), 0.0, 1.0)
@@ -37,7 +37,7 @@ static func tex_brushed() -> ImageTexture:
 	return t
 
 
-## Koyu granit: benekli albedo.
+## Dark granite: speckled albedo.
 static func tex_granite() -> ImageTexture:
 	if _tex_cache.has("granite"):
 		return _tex_cache["granite"]
@@ -49,7 +49,7 @@ static func tex_granite() -> ImageTexture:
 		for x in n:
 			var g := 0.14 + rng.randf_range(-0.03, 0.03)
 			img.set_pixel(x, y, Color(g * 1.02, g, g * 0.97))
-	# acik ve koyu benekler
+	# light and dark speckles
 	for i in range(1400):
 		var cx := rng.randi_range(0, n - 1)
 		var cy := rng.randi_range(0, n - 1)
@@ -65,7 +65,7 @@ static func tex_granite() -> ImageTexture:
 	return t
 
 
-## Acik mermer: yumusak damarli albedo.
+## Light marble: albedo with soft veining.
 static func tex_marble() -> ImageTexture:
 	if _tex_cache.has("marble"):
 		return _tex_cache["marble"]
@@ -79,7 +79,7 @@ static func tex_marble() -> ImageTexture:
 		for x in n:
 			var v := noise.get_noise_2d(float(x), float(y) * 0.45)
 			var g: float = clampf(0.62 + v * 0.07, 0.0, 1.0)
-			# ince damarlar
+			# thin veins
 			if absf(v) < 0.012:
 				g = clampf(g - 0.10, 0.0, 1.0)
 			img.set_pixel(x, y, Color(g, g * 0.995, g * 0.97))
@@ -149,11 +149,11 @@ static func mat(name: String) -> StandardMaterial3D:
 			m.albedo_color = Color(0.16, 0.17, 0.19)
 			m.metallic = 0.4
 			m.roughness = 0.4
-		"rope":                     # galvanizli celik halat
+		"rope":                     # galvanised steel rope
 			m.albedo_color = Color(0.40, 0.40, 0.38)
 			m.metallic = 0.85
 			m.roughness = 0.42
-		"motor":                    # PM disk motor govdesi (dokum, boyali)
+		"motor":                    # PM disc motor body (cast, painted)
 			m.albedo_color = Color(0.22, 0.25, 0.29)
 			m.metallic = 0.35
 			m.roughness = 0.55
@@ -166,7 +166,7 @@ static func mat(name: String) -> StandardMaterial3D:
 			m.metallic = 0.90
 			m.roughness = 0.30
 		"caliper":
-			m.albedo_color = Color(0.62, 0.28, 0.12)   # turuncu fren kaliperi
+			m.albedo_color = Color(0.62, 0.28, 0.12)   # orange brake caliper
 			m.metallic = 0.30
 			m.roughness = 0.50
 		"bedplate":
@@ -176,8 +176,8 @@ static func mat(name: String) -> StandardMaterial3D:
 		"led_off":
 			m.albedo_color = Color(0.13, 0.14, 0.16)
 			m.roughness = 0.5
-		# --- gercek asansor malzemeleri --------------------------------------
-		"inox":                     # firçalanmis paslanmaz (satine) - ana kabin
+		# --- real elevator materials -----------------------------------------
+		"inox":                     # brushed stainless (satin) - main car finish
 			m.albedo_color = Color(0.69, 0.70, 0.72)
 			m.metallic = 0.96
 			m.roughness = 0.56
@@ -185,7 +185,7 @@ static func mat(name: String) -> StandardMaterial3D:
 			m.roughness_texture = tex_brushed()
 			m.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GRAYSCALE
 			m.uv1_scale = Vector3(11, 11, 1)
-		"inox_dark":                # koyu firçalanmis (kapi ust bandi, sove)
+		"inox_dark":                # darker brushed (door header, jamb)
 			m.albedo_color = Color(0.48, 0.49, 0.51)
 			m.metallic = 0.95
 			m.specular = 0.40
@@ -193,15 +193,15 @@ static func mat(name: String) -> StandardMaterial3D:
 			m.roughness_texture = tex_brushed()
 			m.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GRAYSCALE
 			m.uv1_scale = Vector3(11, 11, 1)
-		"inox_line":                # panel derz cizgisi
+		"inox_line":                # panel reveal line
 			m.albedo_color = Color(0.18, 0.19, 0.20)
 			m.metallic = 0.70
 			m.roughness = 0.55
-		"mirror":                   # kabin arka duvar aynasi (hafif yesil cam tonu)
+		"mirror":                   # car rear wall mirror (faint green glass tint)
 			m.albedo_color = Color(0.86, 0.90, 0.87)
 			m.metallic = 1.0
 			m.roughness = 0.06
-		"granite":                  # kabin zemini - koyu granit
+		"granite":                  # car floor - dark granite
 			m.albedo_color = Color(1, 1, 1)
 			m.albedo_texture = tex_granite()
 			m.metallic = 0.04
@@ -211,21 +211,21 @@ static func mat(name: String) -> StandardMaterial3D:
 			m.albedo_color = Color(0.62, 0.60, 0.56)
 			m.metallic = 0.10
 			m.roughness = 0.30
-		"display_glass":            # gosterge on cami
+		"display_glass":            # indicator cover glass
 			m.albedo_color = Color(0.03, 0.03, 0.035)
 			m.metallic = 0.20
 			m.roughness = 0.12
-		"ceiling":                  # kabin asma tavani
+		"ceiling":                  # car false ceiling
 			m.albedo_color = Color(0.88, 0.89, 0.90)
 			m.metallic = 0.30
 			m.roughness = 0.45
-		"marble":                   # kat holu zemini
+		"marble":                   # landing floor
 			m.albedo_color = Color(1, 1, 1)
 			m.albedo_texture = tex_marble()
 			m.metallic = 0.05
 			m.roughness = 0.24
 			m.uv1_scale = Vector3(5, 5, 1)
-		"wall_paint":               # kat holu duvari
+		"wall_paint":               # landing wall
 			m.albedo_color = Color(0.56, 0.555, 0.545)
 			m.roughness = 0.85
 		"car_shell":
@@ -261,16 +261,16 @@ static func emissive(color: Color, energy: float = 2.0) -> StandardMaterial3D:
 
 
 # =============================================================================
-# Mesh yardimcilari
+# Mesh helpers
 # =============================================================================
-## Ayni olculu mesh'ler paylasilir: hem kaynak sayisini hem cizim cagrisini
-## dusurur (Godot ayni mesh+materyal ciftini ornekleyebilir).
-## Mesh'i sonradan DEGISTIRECEKSENIZ shared=false verin, yoksa ayni mesh'i
-## paylasan tum ornekler birlikte degisir.
+## Meshes of identical size are shared: this cuts both the resource count and
+## the draw calls (Godot can instance the same mesh+material pair).
+## Pass shared=false if you are going to MUTATE the mesh afterwards, otherwise
+## every instance sharing it changes with it.
 static var _mesh_cache: Dictionary = {}
 
-## Kucuk detaylar golge uretmez: golge gecisi cizim cagrilarini katliyor,
-## 2 cm'lik bir vida golgesinin gorsel katkisi ise yok.
+## Small details cast no shadow: the shadow pass multiplies draw calls, while
+## the shadow of a 2 cm screw contributes nothing visually.
 const SHADOW_MIN_SIZE := 0.26
 
 
@@ -313,7 +313,7 @@ static func cyl(parent: Node3D, radius: float, height: float, pos: Vector3,
 		mesh.top_radius = radius
 		mesh.bottom_radius = radius
 		mesh.height = height
-		# ince parcalarda dilim sayisi dusuruldu (gorsel farki yok)
+		# fewer radial segments on thin parts (no visible difference)
 		mesh.radial_segments = 20 if radius > 0.05 else 10
 		mesh.rings = 1
 		if shared:
@@ -330,7 +330,7 @@ static func cyl(parent: Node3D, radius: float, height: float, pos: Vector3,
 	return mi
 
 
-## Iki nokta arasinda silindir (halat parcasi, profil, baglanti cubugu).
+## A cylinder between two points (rope segment, profile, tie rod).
 static func rod(parent: Node3D, p1: Vector3, p2: Vector3, radius: float,
 		m: Material) -> MeshInstance3D:
 	var d := p2 - p1
@@ -338,7 +338,7 @@ static func rod(parent: Node3D, p1: Vector3, p2: Vector3, radius: float,
 	if len < 1e-6:
 		len = 1e-6
 
-	# Yay parcalari yuzlerce adet ve cogu ayni boyda -> mesh paylasimi kritik
+	# There are hundreds of arc segments, mostly the same length -> sharing is key
 	var mesh: CylinderMesh
 	var key := "r:%.4f,%.4f" % [radius, len]
 	if _mesh_cache.has(key):
@@ -370,8 +370,8 @@ static func rod(parent: Node3D, p1: Vector3, p2: Vector3, radius: float,
 	return mi
 
 
-## YZ duzleminde yay (kasnak uzerindeki halat sarimi).
-## Aci 0 = +Z yonu, 90 = +Y (tepe).  x sabit kalir.
+## An arc in the YZ plane (rope wrap over a sheave).
+## Angle 0 = +Z direction, 90 = +Y (top).  x stays constant.
 static func arc_yz(parent: Node3D, x: float, cy: float, cz: float, radius: float,
 		from_deg: float, to_deg: float, segments: int, thickness: float,
 		m: Material) -> void:

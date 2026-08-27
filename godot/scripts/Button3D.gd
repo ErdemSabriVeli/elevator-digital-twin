@@ -1,17 +1,17 @@
 class_name Btn3D
 extends Area3D
 
-## Gercek modern asansor butonu (Schindler/Otis tipi):
-##   - paslanmaz bilezik (bezel)
-##   - hafif iceri gomulu firçalanmis kapak, uzerinde kazinmis rakam
-##   - kapagi cevreleyen isikli hale halkasi (cagri kayitliyken yanar)
-##   - istege bagli kabartma (braille) plakasi
+## A realistic modern elevator button (Schindler/Otis style):
+##   - stainless bezel
+##   - slightly recessed brushed cap with an engraved numeral
+##   - illuminated halo ring around the cap (lit while the call is registered)
+##   - optional braille plate
 
 signal pushed(key: String)
 
 const HALO_OFF   := Color(0.10, 0.10, 0.11)
 const HALO_HOVER := Color(0.42, 0.46, 0.52)
-const HALO_ON    := Color(1.00, 0.72, 0.30)     # sicak amber - yaygin renk
+const HALO_ON    := Color(1.00, 0.72, 0.30)     # warm amber - a common choice
 
 var key := ""
 var _halo: MeshInstance3D
@@ -31,29 +31,29 @@ static func create(parent: Node3D, p_key: String, pos: Vector3,
 
 	var fz: float = signf(face_z)
 
-	# --- paslanmaz bilezik --------------------------------------------------
+	# --- stainless bezel --------------------------------------------------
 	var bezel := Vis.torus(b, radius * 0.92, radius * 1.18,
 			Vector3(0, 0, 0.004 * fz), Vis.mat("inox"))
 	bezel.rotation_degrees = Vector3(90, 0, 0)
 
-	# --- isikli hale --------------------------------------------------------
+	# --- illuminated halo --------------------------------------------------------
 	b._halo = Vis.torus(b, radius * 0.74, radius * 0.93,
 			Vector3(0, 0, 0.005 * fz), Vis.emissive(HALO_OFF, 0.12))
 	b._halo.rotation_degrees = Vector3(90, 0, 0)
 
-	# --- buton kapagi (hafif gomulu) ----------------------------------------
+	# --- button cap (slightly recessed) ----------------------------------------
 	b._cap_z = 0.002 * fz
 	b._cap = Vis.cyl(b, radius * 0.76, 0.008, Vector3(0, 0, b._cap_z),
 			Vis.mat("inox_dark"))
 	b._cap.rotation_degrees = Vector3(90, 0, 0)
-	# kapak yuzeyi (acik satine)
+	# cap face (light satin finish)
 	var face := Vis.cyl(b, radius * 0.70, 0.004, Vector3(0, 0, b._cap_z + 0.003 * fz),
 			Vis.mat("inox"))
 	face.rotation_degrees = Vector3(90, 0, 0)
 
-	# --- kazinmis rakam -----------------------------------------------------
+	# --- engraved numeral -----------------------------------------------------
 	if text != "":
-		# Kazinmis rakam: harf yuksekligi ~ buton capinin %85'i
+		# Engraved numeral: glyph height ~85 % of the button diameter
 		var l := Vis.label(b, text, Vector3(0, 0, b._cap_z + 0.007 * fz),
 				radius * 0.0072, Color(0.12, 0.12, 0.13))
 		l.font_size = 120
@@ -61,7 +61,7 @@ static func create(parent: Node3D, p_key: String, pos: Vector3,
 		if fz < 0:
 			l.rotation_degrees = Vector3(0, 180, 0)
 
-	# --- kabartma (braille) plakasi -----------------------------------------
+	# --- braille plate -----------------------------------------
 	if braille:
 		var bp := Node3D.new()
 		bp.position = Vector3(-radius * 1.9, -radius * 0.15, 0.003 * fz)
@@ -73,16 +73,16 @@ static func create(parent: Node3D, p_key: String, pos: Vector3,
 							Vector3(j * 0.008, -i * 0.008, 0),
 							Vis.mat("inox")).rotation_degrees = Vector3(90, 0, 0)
 
-	# --- tiklama alani ------------------------------------------------------
+	# --- click area ------------------------------------------------------
 	var shape := CollisionShape3D.new()
 	var sp := BoxShape3D.new()
 	sp.size = Vector3(radius * 2.6, radius * 2.6, 0.05)
 	shape.shape = sp
 	b.add_child(shape)
 
-	# Butona yalnizca fare isini ile tiklanir; cakisma izleme gerekmez.
-	# monitoring/monitorable acik kalirsa her fizik adiminda bos yere
-	# cakisma sorgusu yapilir (olcumde fizik karesinin buyuk kismi buydu).
+	# The button is only hit by a mouse ray; overlap monitoring is not needed.
+	# Leaving monitoring/monitorable on costs a pointless overlap query every
+	# physics step.
 	b.monitoring = false
 	b.monitorable = false
 	b.input_ray_pickable = true

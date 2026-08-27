@@ -1,21 +1,21 @@
 (*
     ============================================================================
-    FB_DoorCtrl   —   Kapi alt durum makinesi
+    FB_DoorCtrl   -   The door sub state machine
     ----------------------------------------------------------------------------
-    Kabin kapisi + kat kapisi birlikte surulur (kavrama/coupler mantigi).
-    Foto bariyer, kapi-ac butonu ve asiri yuk kapiyi geri actirir.
-    C_T_NUDGE suresi asilirsa "nudge" (yavas zorlamali kapama) devreye girer.
-    Godot karsiligi: SoftPlc.gd -> class DoorCtrl
+    The car door and the landing door are driven together (coupler logic).
+    The light curtain, the door-open button and an overload all reopen it.
+    Past C_T_NUDGE the "nudge" (slow forced closing) mode takes over.
+    Godot counterpart: SoftPlc.gd -> class DoorCtrl
     ============================================================================
 *)
 FUNCTION_BLOCK FB_DoorCtrl
 VAR_INPUT
-    xEnable       : BOOL;    // FALSE -> kapi motorlari serbest (ariza/estop)
-    xReqOpen      : BOOL;    // ust mantik: kapiyi ac ve acik tut
-    xReqClose     : BOOL;    // ust mantik: kapiyi kapat (hareket edecegiz)
+    xEnable       : BOOL;    // FALSE -> door motors released (fault/estop)
+    xReqOpen      : BOOL;    // from above: open the door and hold it open
+    xReqClose     : BOOL;    // from above: close the door (we are about to move)
     xOpenLimit    : BOOL;
     xCloseLimit   : BOOL;
-    xObstruction  : BOOL;    // foto bariyer kesildi
+    xObstruction  : BOOL;    // the light curtain is broken
     xOpenBtn      : BOOL;
     xCloseBtn     : BOOL;
     xOverload     : BOOL;
@@ -27,20 +27,20 @@ VAR_OUTPUT
     xNudge     : BOOL;
     xIsOpen    : BOOL;
     xIsClosed  : BOOL;
-    xDwellDone : BOOL;       // bekleme suresi doldu, kapanmaya hazir
+    xDwellDone : BOOL;       // the dwell has expired, ready to close
     xFault     : BOOL;
     eState     : E_DoorState;
     iRemainMs  : INT;
 END_VAR
 VAR
     tonDwell  : TON;
-    tonMove   : TON;         // hareket zaman asimi
-    tonNudge  : TON;         // kapida cok bekleme
+    tonMove   : TON;         // movement timeout
+    tonNudge  : TON;         // standing at the door too long
     tRemain   : TIME;
 END_VAR
 
 // ---------------------------------------------------------------------------
-// Varsayilan cikislar
+// Default outputs
 xOpenOut   := FALSE;
 xCloseOut  := FALSE;
 xIsOpen    := xOpenLimit;
@@ -68,7 +68,7 @@ CASE eState OF
         IF xReqOpen OR xOpenBtn THEN
             eState := DS_OPENING;
         ELSIF NOT xCloseLimit AND xReqClose THEN
-            eState := DS_CLOSING;      // tam kapanmamis, tekrar dene
+            eState := DS_CLOSING;      // not fully closed, try again
         END_IF
 
     // -----------------------------------------------------------------------
@@ -86,7 +86,7 @@ CASE eState OF
 
     // -----------------------------------------------------------------------
     DS_OPEN:
-        // Bekleme suresi: engel / asiri yuk / ac butonu varken sayac resetlenir
+        // Dwell: the timer resets while an obstruction / overload / open button is present
         tonDwell(IN := NOT (xObstruction OR xOverload OR xOpenBtn OR xReqOpen),
                  PT := tDwell);
         tonNudge(IN := TRUE, PT := C_T_NUDGE);
@@ -97,7 +97,7 @@ CASE eState OF
 
         xDwellDone := tonDwell.Q;
 
-        // Kapat butonu bekleme suresini atlatir (engel yoksa)
+        // The close button skips the dwell (if nothing is in the way)
         IF xCloseBtn AND NOT xObstruction AND NOT xOverload AND NOT xReqOpen THEN
             eState := DS_CLOSING;
             tonDwell(IN := FALSE);
@@ -105,7 +105,7 @@ CASE eState OF
             eState := DS_CLOSING;
             tonDwell(IN := FALSE);
         ELSIF xNudge AND xReqClose THEN
-            eState := DS_CLOSING;      // zorlamali kapama
+            eState := DS_CLOSING;      // forced closing
             tonDwell(IN := FALSE);
         END_IF
 
@@ -115,8 +115,8 @@ CASE eState OF
         tonMove(IN := TRUE, PT := C_T_DOOR_MOVE_MAX);
         iRemainMs := 0;
 
-        // Geri acma sebepleri (nudge modunda foto bariyer yoksayilir,
-        // ama ac butonu ve asiri yuk her zaman gecerlidir)
+        // Reasons to reopen (in nudge mode the light curtain is ignored,
+        // but the open button and an overload always count)
         IF xOpenBtn OR xReqOpen OR xOverload OR (xObstruction AND NOT xNudge) THEN
             tonMove(IN := FALSE);
             eState := DS_REOPEN;
@@ -144,7 +144,7 @@ CASE eState OF
         xOpenOut  := FALSE;
         xCloseOut := FALSE;
         iRemainMs := 0;
-        IF NOT xFault THEN                 // disaridan reset edildi
+        IF NOT xFault THEN                 // reset from outside
             IF xCloseLimit THEN
                 eState := DS_CLOSED;
             ELSE
@@ -155,7 +155,7 @@ CASE eState OF
 END_CASE
 
 
-(*  Ariza reset (ust mantik cagirir)  *)
+(*  Fault reset (called from above)  *)
 METHOD Reset
 xFault := FALSE;
 END_METHOD

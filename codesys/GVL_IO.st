@@ -1,20 +1,20 @@
 (*
     ============================================================================
-    GVL_IO   —   Modbus TCP Slave Device register alani
-    Application > Add Object > Global Variable List  adiyla: GVL_IO
+    GVL_IO   -   the Modbus TCP Slave Device register area
+    Application > Add Object > Global Variable List, named: GVL_IO
     ----------------------------------------------------------------------------
-    CODESYS "Modbus TCP Slave Device" mantigi:
-       Holding Registers  -> PLC girisi  (%IW)  : Godot yazar, PLC okur
-       Input Registers    -> PLC cikisi  (%QW)  : PLC yazar, Godot okur
+    How the CODESYS "Modbus TCP Slave Device" works:
+       Holding Registers  -> PLC inputs   (%IW)  : Godot writes, the PLC reads
+       Input Registers    -> PLC outputs  (%QW)  : the PLC writes, Godot reads
 
-    ONEMLI: Asagidaki %IW0 / %QW0 baslangic adresleri sizin projenizde farkli
-    olabilir. Cihaz agacinda "Modbus_TCP_Slave_Device > Modbus TCP Slave Device
-    I/O Mapping" sekmesini acip gercek baslangic adresini gorun ve buradaki
-    AT ifadelerini ona gore duzeltin.
+    IMPORTANT: the %IW0 / %QW0 start addresses below may differ in your own
+    project. In the device tree open "Modbus_TCP_Slave_Device > Modbus TCP
+    Slave Device I/O Mapping", read off the real start address and correct the
+    AT clauses here accordingly.
 
-    Alternatif (AT kullanmak istemezseniz): AT ifadelerini silin, dizileri
-    normal degisken birakin ve I/O Mapping sekmesinde her kanali tek tek
-    GVL_IO.g_awMbIn[x] / g_awMbOut[x] degiskenine baglayin.
+    Alternative (if you would rather not use AT): delete the AT clauses, leave
+    the arrays as plain variables and bind each channel individually to
+    GVL_IO.g_awMbIn[x] / g_awMbOut[x] on the I/O Mapping tab.
     ============================================================================
 *)
 VAR_GLOBAL
@@ -25,12 +25,12 @@ VAR_GLOBAL
     // PLC -> Godot  (Input Registers, master read)
     g_awMbOut AT %QW0 : ARRAY[0..15] OF WORD;
 
-    // Uygulama katmani (PRG_ModbusIO tarafindan doldurulur / okunur)
+    // Application layer (filled / read by PRG_ModbusIO)
     g_stIn  : ST_LiftInputs;
     g_stOut : ST_LiftOutputs;
 
-    // Baglanti gozetimi
-    g_xTwinOnline   : BOOL;        // Godot heartbeat degisiyor mu
+    // Connection supervision
+    g_xTwinOnline   : BOOL;        // is the Godot heartbeat changing
     g_iTwinHbLast   : INT;
     g_tTwinLostTime : TIME;
 
@@ -39,46 +39,47 @@ END_VAR
 
 (*
     ============================================================================
-    REGISTER HARITASI  (docs/io-map.md ile ayni)
+    REGISTER MAP  (the same as docs/io-map.md)
     ----------------------------------------------------------------------------
     Godot -> PLC   g_awMbIn[n]    (Holding Register n)
-      0  HALL_UP        bit n = n. kat YUKARI cagri butonu
-      1  HALL_DOWN      bit n = n. kat ASAGI cagri butonu
-      2  CAR_CALL       bit n = kabin ici n. kat butonu
-      3  CMD_BITS       0 kapi-ac btn      1 kapi-kapa btn   2 alarm
-                        3 acil stop        4 asiri yuk       5 yangin cagrisi
-                        6 revizyon         7 hata reset      8 foto bariyer
-                        9 surucu hazir    10 surucu ariza   11 revizyon YUKARI
-                       12 revizyon ASAGI
-      4  FLOOR_ZONE     bit n = kabin n. katin door-zone bolgesinde
-      5  LIMIT_BITS     0 ust limit        1 alt limit       2 kapi acik limit
-                        3 kapi kapali lim. 4 kapi kilidi     5 fren geri bes.
-                        6 guvenlik zinciri 7 hiz regulatoru
-      6  CAR_POS_MM     mutlak konum [mm]  (0..65535)
-      7  CAR_SPEED_MMS  gercek hiz [mm/s]
-      8  DOOR_POS_PMIL  kapi konumu 0..1000
-      9  LOAD_KG        kabin yuku [kg]
-     10  TWIN_HB        Godot heartbeat (her cevrim +1)
-     11..15  rezerve
+      0  HALL_UP        bit n = landing UP call button, floor n
+      1  HALL_DOWN      bit n = landing DOWN call button, floor n
+      2  CAR_CALL       bit n = in-car button for floor n
+      3  CMD_BITS       0 door-open btn    1 door-close btn  2 alarm
+                        3 emergency stop   4 overload        5 fire call
+                        6 inspection       7 fault reset     8 light curtain
+                        9 drive ready     10 drive fault    11 inspection UP
+                       12 inspection DOWN
+      4  FLOOR_ZONE     bit n = the car is in the door zone of floor n
+      5  LIMIT_BITS     0 top limit        1 bottom limit    2 door open limit
+                        3 door close limit 4 door lock       5 brake feedback
+                        6 safety chain     7 overspeed governor
+      6  CAR_POS_MM     absolute position [mm]  (0..65535)
+      7  CAR_SPEED_MMS  actual speed [mm/s]
+      8  DOOR_POS_PMIL  door position 0..1000
+      9  LOAD_KG        car load [kg]
+     10  TWIN_HB        Godot heartbeat (+1 every cycle)
+     11..15  reserved
 
     PLC -> Godot   g_awMbOut[n]   (Input Register n)
-      0  DRIVE_CMD      0 enable  1 yukari  2 asagi  3 fren-coz  4 seviyeleme
-      1  DOOR_CMD       0 ac      1 kapa    2 nudge
+      0  DRIVE_CMD      0 enable  1 up      2 down    3 brake-release
+                        4 levelling
+      1  DOOR_CMD       0 open    1 close   2 nudge
       2  LAMP_HALL_UP   bit n
       3  LAMP_HALL_DOWN bit n
       4  LAMP_CAR       bit n
-      5  STATUS_BITS    0 hareket  1 kapi acik  2 kapi kapali  3 asiri yuk
-                        4 ariza    5 yangin     6 revizyon     7 servis disi
-                        8 gong     9 ok-yukari 10 ok-asagi    11 kabin lambasi
-                       12 alarm zili
+      5  STATUS_BITS    0 moving   1 door open  2 door closed  3 overload
+                        4 fault    5 fire       6 inspection   7 out of service
+                        8 gong     9 arrow-up  10 arrow-down  11 car light
+                       12 alarm bell
       6  CURRENT_FLOOR
       7  TARGET_FLOOR
-      8  DIRECTION      0 yok 1 yukari 2 asagi
-      9  SPEED_SP_MMS   hiz referansi [mm/s]
+      8  DIRECTION      0 none 1 up 2 down
+      9  SPEED_SP_MMS   speed reference [mm/s]
      10  STATE_CODE     E_LiftState
      11  FAULT_CODE     E_Fault
      12  PLC_HB         PLC heartbeat
-     13  DOOR_TIMER_MS  kapi bekleme kalan sure [ms]
-     14..15  rezerve
+     13  DOOR_TIMER_MS  remaining door dwell time [ms]
+     14..15  reserved
     ============================================================================
 *)

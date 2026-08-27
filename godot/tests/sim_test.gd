@@ -1,10 +1,11 @@
 extends SceneTree
 
-## Grafik arayuz olmadan calisan senaryo testi.
-## SoftPlc (ST kodunun ikizi) + LiftPlant (fizik modeli) birlikte kosturulur.
+## Scenario test that runs without a graphical interface.
+## SoftPlc (the twin of the ST code) and LiftPlant (the physics model) are
+## run together.
 ##
-## Calistirma:
-##   godot --headless --path <godot klasoru> --script res://tests/sim_test.gd
+## Run with:
+##   godot --headless --path <godot folder> --script res://tests/sim_test.gd
 
 const DT := 1.0 / 60.0
 
@@ -18,7 +19,7 @@ var failures := 0
 
 
 func _initialize() -> void:
-	print("=== ASANSOR DIJITAL IKIZ — SENARYO TESTLERI ===\n")
+	print("=== ELEVATOR DIGITAL TWIN - SCENARIO TESTS ===\n")
 
 	test_car_call()
 	test_collective()
@@ -32,8 +33,8 @@ func _initialize() -> void:
 	test_gong_and_alarm()
 	test_ride_quality()
 
-	print("\n=== SONUC: %s ===" % ("TUM TESTLER GECTI" if failures == 0
-			else "%d TEST BASARISIZ" % failures))
+	print("\n=== RESULT: %s ===" % ("ALL TESTS PASSED" if failures == 0
+			else "%d TESTS FAILED" % failures))
 	quit(1 if failures > 0 else 0)
 
 
@@ -48,7 +49,7 @@ func reset(start_floor := 0) -> void:
 		regs_out[i] = 0
 	hb = 0
 	t = 0.0
-	# PLC'nin INIT -> IDLE gecisini tamamlamasi icin bir kac cevrim
+	# a few scans so the PLC completes its INIT -> IDLE transition
 	step(0.5)
 
 
@@ -63,7 +64,7 @@ func step(seconds: float) -> void:
 		t += DT
 
 
-## Kosul saglanana kadar (en fazla timeout saniye) simule et.
+## Simulate until the condition holds (at most `timeout` seconds).
 func step_until(cond: Callable, timeout := 40.0) -> bool:
 	var elapsed := 0.0
 	while elapsed < timeout:
@@ -94,10 +95,10 @@ func fault() -> int:
 
 func check(name: String, ok: bool, detail := "") -> void:
 	if ok:
-		print("  [gecti] %s %s" % [name, detail])
+		print("  [ ok  ] %s %s" % [name, detail])
 	else:
 		failures += 1
-		print("  [HATA ] %s %s" % [name, detail])
+		print("  [FAIL ] %s %s" % [name, detail])
 
 
 func press_for(key: String, seconds := 0.3) -> void:
@@ -105,7 +106,7 @@ func press_for(key: String, seconds := 0.3) -> void:
 	step(seconds)
 
 
-# --- cok satirli kosullar (lambda tek satirla sinirli) -----------------------
+# --- multi-line conditions (a lambda is limited to one line) ----------------
 func _cond_at_fire_floor() -> bool:
 	return cur_floor() == LiftCfg.FIRE_FLOOR and plant.door_pos > 0.95
 
@@ -117,235 +118,235 @@ func _cond_door_closing() -> bool:
 
 # =============================================================================
 func test_car_call() -> void:
-	print("1) Kabin ici cagri: zemin -> 3. kat")
+	print("1) Car call: ground -> floor 3")
 	reset(0)
 
-	check("baslangicta IDLE", state() == LiftIo.State.IDLE,
-			"(durum=%s)" % LiftIo.STATE_TEXT[state()])
+	check("IDLE at the start", state() == LiftIo.State.IDLE,
+			"(state=%s)" % LiftIo.STATE_TEXT[state()])
 
 	press_for("car_3")
 	var arrived := step_until(func(): return cur_floor() == 3 and status(LiftIo.ST_DOOR_OPEN))
-	check("3. kata varip kapiyi acti", arrived,
-			"(kat=%d, konum=%.0f mm, sure=%.1f s)" % [cur_floor(), plant.pos_mm, t])
-	check("kat seviyesi toleransi", absf(plant.pos_mm - 3 * LiftCfg.FLOOR_HEIGHT_MM)
+	check("reached floor 3 and opened the door", arrived,
+			"(floor=%d, pos=%.0f mm, time=%.1f s)" % [cur_floor(), plant.pos_mm, t])
+	check("levelling tolerance", absf(plant.pos_mm - 3 * LiftCfg.FLOOR_HEIGHT_MM)
 			<= LiftCfg.LEVEL_TOL_MM,
-			"(sapma=%.1f mm)" % (plant.pos_mm - 3 * LiftCfg.FLOOR_HEIGHT_MM))
+			"(error=%.1f mm)" % (plant.pos_mm - 3 * LiftCfg.FLOOR_HEIGHT_MM))
 
 	var closed := step_until(func(): return status(LiftIo.ST_DOOR_CLOSED), 15.0)
-	check("bekleme sonrasi kapi kapandi", closed)
-	step(0.2)   # FSM'nin bir sonraki taramada IDLE'a gecmesi (ST ile ayni davranis)
-	check("bosta duruma dondu", state() == LiftIo.State.IDLE or state() == LiftIo.State.PARK,
-			"(durum=%s)" % LiftIo.STATE_TEXT[state()])
+	check("door closed after the dwell time", closed)
+	step(0.2)   # let the FSM reach IDLE on the next scan (same behaviour as the ST)
+	check("returned to an idle state", state() == LiftIo.State.IDLE or state() == LiftIo.State.PARK,
+			"(state=%s)" % LiftIo.STATE_TEXT[state()])
 
 
 func test_collective() -> void:
-	print("\n2) Toplamali kumanda: 5. kattan asagi inerken 2. kat cagrisi")
+	print("\n2) Collective control: a floor 2 call while coming down from floor 5")
 	reset(0)
 
 	press_for("car_5")
 	var up := step_until(func(): return cur_floor() == 5 and status(LiftIo.ST_DOOR_OPEN))
-	check("5. kata cikti", up, "(sure=%.1f s)" % t)
+	check("went up to floor 5", up, "(time=%.1f s)" % t)
 
-	# asagi inerken yol ustundeki 2. kattan asagi cagrisi
+	# a down call at floor 2, on the way while travelling down
 	press_for("hall_down_2")
 	var stopped := step_until(func(): return cur_floor() == 2 and status(LiftIo.ST_DOOR_OPEN), 45.0)
-	check("inisde 2. katta durdu", stopped, "(kat=%d)" % cur_floor())
-	check("2. kat asagi lambasi sondu",
+	check("stopped at floor 2 on the way down", stopped, "(floor=%d)" % cur_floor())
+	check("floor 2 down lamp cleared",
 			not LiftIo.get_bit(regs_out[LiftIo.OUT_LAMP_DOWN], 2))
 
 
 func test_estop() -> void:
-	print("\n3) Acil stop: hareket halinde guvenlik")
+	print("\n3) Emergency stop: safety while moving")
 	reset(0)
 
 	press_for("car_5")
 	var moving := step_until(func(): return status(LiftIo.ST_MOVING) and plant.pos_mm > 1500.0)
-	check("hareket basladi", moving, "(konum=%.0f mm)" % plant.pos_mm)
+	check("the car started moving", moving, "(pos=%.0f mm)" % plant.pos_mm)
 
 	plant.sw_estop = true
 	step(1.5)
-	check("acil stopta hareket durdu", absf(plant.speed_mms) < 1.0,
-			"(hiz=%.1f mm/s)" % plant.speed_mms)
-	check("ariza kodu ESTOP", fault() == LiftIo.Fault.ESTOP,
-			"(kod=%d %s)" % [fault(), LiftIo.FAULT_TEXT[fault()]])
+	check("motion stopped on emergency stop", absf(plant.speed_mms) < 1.0,
+			"(speed=%.1f mm/s)" % plant.speed_mms)
+	check("fault code is ESTOP", fault() == LiftIo.Fault.ESTOP,
+			"(code=%d %s)" % [fault(), LiftIo.FAULT_TEXT[fault()]])
 
 	plant.sw_estop = false
 	press_for("reset")
 	step(1.0)
-	check("reset sonrasi ariza silindi", fault() == LiftIo.Fault.NONE)
-	# Ariza sirasinda tum cagrilar silinir (EN 81 uygulamasi): kabin kendiliginden
-	# yola cikmamali, yolcu yeniden cagri vermelidir.
-	check("ariza cagrilari sildi", regs_out[LiftIo.OUT_LAMP_CAR] == 0,
-			"(lamba=%d)" % regs_out[LiftIo.OUT_LAMP_CAR])
+	check("fault cleared after reset", fault() == LiftIo.Fault.NONE)
+	# All calls are cleared on a fault (EN 81 practice): the car must not set
+	# off by itself, the passenger has to register a new call.
+	check("the fault cleared the calls", regs_out[LiftIo.OUT_LAMP_CAR] == 0,
+			"(lamp=%d)" % regs_out[LiftIo.OUT_LAMP_CAR])
 
 	press_for("car_5")
 	var resumed := step_until(func(): return cur_floor() == 5 and status(LiftIo.ST_DOOR_OPEN), 45.0)
-	check("yeni cagri ile sefer yapildi", resumed, "(kat=%d)" % cur_floor())
+	check("a new call produced a trip", resumed, "(floor=%d)" % cur_floor())
 
 
 func test_overload() -> void:
-	print("\n4) Asiri yuk: kapi kapanmamali, kalkis olmamali")
+	print("\n4) Overload: the door must not close and the car must not start")
 	reset(0)
 
-	# once 2. kata git ve kapiyi ac, sonra yolcu bindir (asiri yuk)
+	# go to floor 2 and open the door first, then load passengers (overload)
 	press_for("car_2")
 	var at2 := step_until(func(): return cur_floor() == 2 and plant.door_pos > 0.99)
-	check("2. kata varildi", at2)
+	check("reached floor 2", at2)
 
-	plant.load_kg = 750          # > 693 kg -> asiri yuk
+	plant.load_kg = 750          # > 693 kg -> overload
 	step(8.0)
-	check("asiri yuk lambasi yandi", status(LiftIo.ST_OVERLOAD))
-	check("kapi acik kaldi", plant.door_pos > 0.9, "(kapi=%.0f%%)" % (plant.door_pos * 100))
+	check("overload lamp lit", status(LiftIo.ST_OVERLOAD))
+	check("the door stayed open", plant.door_pos > 0.9, "(door=%.0f%%)" % (plant.door_pos * 100))
 
-	# asiri yuk devam ederken yeni cagri kalkisa izin vermemeli
+	# with the overload still present a new call must not start the car
 	press_for("car_4")
 	step(6.0)
-	check("asiri yukte kalkis yok",
+	check("no start while overloaded",
 			absf(plant.pos_mm - 2 * LiftCfg.FLOOR_HEIGHT_MM) < 50.0,
-			"(konum=%.0f mm)" % plant.pos_mm)
+			"(pos=%.0f mm)" % plant.pos_mm)
 
 	plant.load_kg = 80
 	var moved := step_until(func(): return cur_floor() == 4 and status(LiftIo.ST_DOOR_OPEN), 45.0)
-	check("yuk azalinca sefer tamamlandi", moved, "(kat=%d)" % cur_floor())
+	check("the trip completed once the load dropped", moved, "(floor=%d)" % cur_floor())
 
 
 func test_fire() -> void:
-	print("\n5) Yangin modu: tahliye katina inis")
+	print("\n5) Fire mode: recall to the evacuation floor")
 	reset(4)
 
 	plant.sw_fire = true
 	var evac := step_until(_cond_at_fire_floor, 45.0)
-	check("tahliye katina indi ve kapiyi acti", evac,
-			"(kat=%d, kapi=%.0f%%)" % [cur_floor(), plant.door_pos * 100])
-	check("yangin modu bayragi", status(LiftIo.ST_FIRE))
+	check("recalled to the fire floor and opened the door", evac,
+			"(floor=%d, door=%.0f%%)" % [cur_floor(), plant.door_pos * 100])
+	check("fire mode flag", status(LiftIo.ST_FIRE))
 
-	# Regresyon: kapi ac-kapa dongusune girmemeli (donguperiyodu ~9 s idi)
+	# Regression: it must not enter an open/close loop (the period was ~9 s)
 	step(25.0)
-	check("kapi 25 s boyunca acik kaldi", plant.door_pos > 0.95,
-			"(kapi=%.0f%%)" % (plant.door_pos * 100))
+	check("the door stayed open for 25 s", plant.door_pos > 0.95,
+			"(door=%.0f%%)" % (plant.door_pos * 100))
 
 
 func test_light_curtain() -> void:
-	print("\n6) Foto bariyer: kapanan kapi geri acilmali")
+	print("\n6) Light curtain: a closing door must reopen")
 	reset(0)
 
 	press_for("car_2")
 	var opened := step_until(func(): return cur_floor() == 2 and plant.door_pos > 0.99)
-	check("2. katta kapi acildi", opened)
+	check("the door opened at floor 2", opened)
 
-	# kapanmaya baslamasini bekle
+	# wait for it to start closing
 	var closing := step_until(_cond_door_closing, 15.0)
-	check("kapi kapanmaya basladi", closing, "(kapi=%.0f%%)" % (plant.door_pos * 100))
+	check("the door started to close", closing, "(door=%.0f%%)" % (plant.door_pos * 100))
 
 	plant.sw_obstruction = true
 	var reopened := step_until(func(): return plant.door_pos > 0.99, 10.0)
 	plant.sw_obstruction = false
-	check("bariyer kesilince geri acildi", reopened,
-			"(kapi=%.0f%%)" % (plant.door_pos * 100))
+	check("it reopened when the curtain was broken", reopened,
+			"(door=%.0f%%)" % (plant.door_pos * 100))
 
 	var closed2 := step_until(func(): return plant.door_pos < 0.01, 20.0)
-	check("engel kalkinca tekrar kapandi", closed2)
+	check("it closed again once the obstruction cleared", closed2)
 
 
 # =============================================================================
 func test_travel_timeout() -> void:
-	print("\n7) Hareket zaman asimi ve arizadan donus")
+	print("\n7) Travel timeout and recovery from the fault")
 	reset(0)
 
 	press_for("car_5")
 	var moving := step_until(func(): return status(LiftIo.ST_MOVING) and plant.pos_mm > 800.0)
-	check("hareket basladi", moving, "(konum=%.0f mm)" % plant.pos_mm)
+	check("the car started moving", moving, "(pos=%.0f mm)" % plant.pos_mm)
 
-	# kabin sikisti: surucu calisiyor ama konum ilerlemiyor
+	# the car is jammed: the drive runs but the position does not advance
 	plant.sw_car_jammed = true
 	var timed_out := step_until(func(): return fault() == LiftIo.Fault.TRAVEL_TIMEOUT, 40.0)
-	check("hareket zaman asimi arizasi olustu", timed_out,
-			"(kod=%d %s)" % [fault(), LiftIo.FAULT_TEXT[fault()]])
+	check("the travel timeout fault was raised", timed_out,
+			"(code=%d %s)" % [fault(), LiftIo.FAULT_TEXT[fault()]])
 
-	# Sikisma giderilip reset veriliyor. Zamanlayici CIKIS bayragi da
-	# temizlenmezse ariza aninda geri gelir -> asagidaki kontrol onu yakalar.
+	# Clear the jam and reset. If the timer OUTPUT flag is not cleared as well
+	# the fault comes straight back -> the check below catches that.
 	plant.sw_car_jammed = false
 	press_for("reset")
 	step(0.5)
-	check("reset sonrasi ariza silindi", fault() == LiftIo.Fault.NONE,
-			"(kod=%d)" % fault())
+	check("fault cleared after reset", fault() == LiftIo.Fault.NONE,
+			"(code=%d)" % fault())
 	step(3.0)
-	check("ariza geri gelmiyor (bayrak kilitlenmiyor)",
-			fault() == LiftIo.Fault.NONE, "(kod=%d)" % fault())
+	check("the fault does not return (no latched flag)",
+			fault() == LiftIo.Fault.NONE, "(code=%d)" % fault())
 
 	press_for("car_4")
 	var ok := step_until(func(): return cur_floor() == 4 and status(LiftIo.ST_DOOR_OPEN), 45.0)
-	check("arizadan sonra normal sefer yapilabiliyor", ok, "(kat=%d)" % cur_floor())
+	check("a normal trip is possible after the fault", ok, "(floor=%d)" % cur_floor())
 
 
 func test_brake_feedback() -> void:
-	print("\n8) Fren geri besleme denetimi")
+	print("\n8) Brake feedback supervision")
 	reset(0)
 
-	plant.sw_brake_stuck = true      # fren mekanik takili: cozme emrine cevap yok
+	plant.sw_brake_stuck = true      # the brake is mechanically stuck: no response to the release command
 	press_for("car_3")
 	var brake_flt := step_until(func(): return fault() == LiftIo.Fault.BRAKE, 25.0)
-	check("fren arizasi tespit edildi", brake_flt,
-			"(kod=%d %s)" % [fault(), LiftIo.FAULT_TEXT[fault()]])
-	check("kabin yerinde kaldi", absf(plant.pos_mm) < 20.0,
-			"(konum=%.0f mm)" % plant.pos_mm)
+	check("brake fault detected", brake_flt,
+			"(code=%d %s)" % [fault(), LiftIo.FAULT_TEXT[fault()]])
+	check("the car stayed where it was", absf(plant.pos_mm) < 20.0,
+			"(pos=%.0f mm)" % plant.pos_mm)
 
 	plant.sw_brake_stuck = false
 	press_for("reset")
 	step(2.0)
-	check("fren duzelince ariza silindi", fault() == LiftIo.Fault.NONE,
-			"(kod=%d)" % fault())
+	check("the fault cleared once the brake recovered", fault() == LiftIo.Fault.NONE,
+			"(code=%d)" % fault())
 
 
 func test_overspeed() -> void:
-	print("\n9) Asiri hiz - regulator devreye giriyor")
+	print("\n9) Overspeed - the governor trips")
 	reset(0)
 
 	press_for("car_5")
 	var fast := step_until(func(): return plant.speed_mms > 900.0)
-	check("kabin hizlandi", fast, "(hiz=%.0f mm/s)" % plant.speed_mms)
+	check("the car got up to speed", fast, "(speed=%.0f mm/s)" % plant.speed_mms)
 
-	plant.sw_overspeed = true        # surucu kacagi
+	plant.sw_overspeed = true        # drive runaway
 	var trip := step_until(func(): return fault() == LiftIo.Fault.OVERSPEED, 12.0)
-	check("regulator asiri hizi yakaladi", trip,
-			"(kod=%d, en yuksek hiz gozlendi)" % fault())
+	check("the governor caught the overspeed", trip,
+			"(code=%d, peak speed observed)" % fault())
 	step(2.0)
-	check("asiri hizda kabin durduruldu", absf(plant.speed_mms) < 5.0,
-			"(hiz=%.1f mm/s)" % plant.speed_mms)
+	check("the car was stopped on overspeed", absf(plant.speed_mms) < 5.0,
+			"(speed=%.1f mm/s)" % plant.speed_mms)
 
 
 func test_gong_and_alarm() -> void:
-	print("\n10) Gong suresi ve alarm zili")
+	print("\n10) Gong duration and the alarm bell")
 	reset(0)
 
 	press_for("car_2")
 	var arrived := step_until(func(): return status(LiftIo.ST_GONG))
-	check("kata varista gong caldi", arrived)
+	check("the gong rang on arrival", arrived)
 
-	# gong ne kadar surdu?
+	# how long did the gong last?
 	var t0 := t
 	var still := step_until(func(): return not status(LiftIo.ST_GONG), 5.0)
 	var dur := t - t0
-	check("gong suresi ayarli degere yakin", still and dur > LiftCfg.T_GONG * 0.5,
-			"(%.2f s, hedef %.2f s)" % [dur, LiftCfg.T_GONG])
+	check("gong duration is close to the configured value", still and dur > LiftCfg.T_GONG * 0.5,
+			"(%.2f s, target %.2f s)" % [dur, LiftCfg.T_GONG])
 
-	# alarm zili
-	check("alarm baslangicta kapali", not status(LiftIo.ST_ALARM))
+	# alarm bell
+	check("the alarm is off to begin with", not status(LiftIo.ST_ALARM))
 	plant.press("alarm")
 	step(0.3)
-	check("alarm butonu zili calistirdi", status(LiftIo.ST_ALARM))
+	check("the alarm button started the bell", status(LiftIo.ST_ALARM))
 	step(LiftCfg.T_ALARM + 0.5)
-	check("zil sure sonunda sustu", not status(LiftIo.ST_ALARM))
+	check("the bell stopped when the time ran out", not status(LiftIo.ST_ALARM))
 
 
 # =============================================================================
 func test_ride_quality() -> void:
-	print("\n11) Surus kalitesi: jerk sinirli S-egrisi profili")
+	print("\n11) Ride quality: jerk-limited S-curve profile")
 	reset(0)
 
 	press_for("car_5")
 
-	# seyir boyunca ivmenin degisim hizini (jerk) olc
+	# measure the rate of change of acceleration (jerk) over the trip
 	var prev_a := plant.accel_mms2
 	var max_jerk := 0.0
 	var max_acc := 0.0
@@ -357,8 +358,9 @@ func test_ride_quality() -> void:
 		regs_out = plc.scan(plant.build_registers(hb), DT)
 		elapsed += DT
 		t += DT
-		# Yalnizca surucu tork uretirken olc. Fren tutma / acil durus yolu
-		# kasten serttir ve konfor sinirina tabi degildir.
+		# Only measure while the drive is producing torque. The brake-holding /
+		# emergency-stop path is deliberately harsh and not subject to the
+		# comfort limit.
 		if plant.powered:
 			max_jerk = maxf(max_jerk, absf(plant.accel_mms2 - prev_a) / DT)
 			max_acc = maxf(max_acc, absf(plant.accel_mms2))
@@ -366,12 +368,12 @@ func test_ride_quality() -> void:
 		if cur_floor() == 5 and status(LiftIo.ST_DOOR_OPEN):
 			break
 
-	check("5. kata varildi", cur_floor() == 5, "(kat=%d)" % cur_floor())
-	# surunme hizinda sinir gevsetildigi icin bir miktar pay birakiliyor
-	check("jerk siniri asilmadi", max_jerk <= LiftCfg.JERK_MMS3 * 8.5,
-			"(olculen %.0f mm/s3, sinir %.0f)" % [max_jerk, LiftCfg.JERK_MMS3])
-	check("ivme limiti asilmadi", max_acc <= LiftCfg.DECEL_MMS2 * 1.05,
-			"(olculen %.0f mm/s2, sinir %.0f)" % [max_acc, LiftCfg.DECEL_MMS2])
-	check("kat seviyesi tuttu",
+	check("reached floor 5", cur_floor() == 5, "(floor=%d)" % cur_floor())
+	# the limit is relaxed at creep speed, so leave some headroom
+	check("jerk limit not exceeded", max_jerk <= LiftCfg.JERK_MMS3 * 8.5,
+			"(measured %.0f mm/s3, limit %.0f)" % [max_jerk, LiftCfg.JERK_MMS3])
+	check("acceleration limit not exceeded", max_acc <= LiftCfg.DECEL_MMS2 * 1.05,
+			"(measured %.0f mm/s2, limit %.0f)" % [max_acc, LiftCfg.DECEL_MMS2])
+	check("levelling held",
 			absf(plant.pos_mm - 5 * LiftCfg.FLOOR_HEIGHT_MM) <= LiftCfg.LEVEL_TOL_MM,
-			"(sapma %.1f mm)" % (plant.pos_mm - 5 * LiftCfg.FLOOR_HEIGHT_MM))
+			"(error %.1f mm)" % (plant.pos_mm - 5 * LiftCfg.FLOOR_HEIGHT_MM))
