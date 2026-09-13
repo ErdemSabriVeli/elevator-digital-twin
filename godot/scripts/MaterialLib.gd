@@ -181,18 +181,26 @@ static func mat(name: String) -> StandardMaterial3D:
 			m.albedo_color = Color(0.69, 0.70, 0.72)
 			m.metallic = 0.96
 			m.roughness = 0.56
-			m.specular = 0.42
+			m.metallic_specular = 0.42
 			m.roughness_texture = tex_brushed()
 			m.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GRAYSCALE
 			m.uv1_scale = Vector3(11, 11, 1)
 		"inox_dark":                # darker brushed (door header, jamb)
 			m.albedo_color = Color(0.48, 0.49, 0.51)
 			m.metallic = 0.95
-			m.specular = 0.40
+			m.metallic_specular = 0.40
 			m.roughness = 0.60
 			m.roughness_texture = tex_brushed()
 			m.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GRAYSCALE
 			m.uv1_scale = Vector3(11, 11, 1)
+		"braille":                  # raised braille dots
+			# Same stainless as the panel, but no brush grain: the grain is
+			# coarser than a 1.5 mm dot, and dots on a panel in daily use get
+			# polished by fingertips, so they read a little brighter.
+			m.albedo_color = Color(0.74, 0.75, 0.77)
+			m.metallic = 0.94
+			m.metallic_specular = 0.60
+			m.roughness = 0.28
 		"inox_line":                # panel reveal line
 			m.albedo_color = Color(0.18, 0.19, 0.20)
 			m.metallic = 0.70
@@ -326,6 +334,32 @@ static func cyl(parent: Node3D, radius: float, height: float, pos: Vector3,
 	_apply_shadow(mi, maxf(radius * 2.0, height))
 	if name != "":
 		mi.name = name
+	parent.add_child(mi)
+	return mi
+
+
+## A raised, domed dot (braille). The profile matters: a braille dot is read by
+## sliding a fingertip across it, so it is a hemisphere, not a flat disc.
+static func dome(parent: Node3D, radius: float, height: float, pos: Vector3,
+		m: Material) -> MeshInstance3D:
+	var mesh: SphereMesh
+	var key := "d:%.5f,%.5f" % [radius, height]
+	if _mesh_cache.has(key):
+		mesh = _mesh_cache[key]
+	else:
+		mesh = SphereMesh.new()
+		mesh.radius = radius
+		mesh.height = height * 2.0        # is_hemisphere keeps the upper half
+		mesh.is_hemisphere = true
+		mesh.radial_segments = 10
+		mesh.rings = 4
+		_mesh_cache[key] = mesh
+
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = m
+	mi.position = pos
+	_apply_shadow(mi, maxf(radius * 2.0, height))
 	parent.add_child(mi)
 	return mi
 

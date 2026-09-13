@@ -5,13 +5,16 @@ extends Area3D
 ##   - stainless bezel
 ##   - slightly recessed brushed cap with an engraved numeral
 ##   - illuminated halo ring around the cap (lit while the call is registered)
-##   - optional braille plate
+##   - optional braille label to its left (ADA 407.4.7.1.2)
 
 signal pushed(key: String)
 
 const HALO_OFF   := Color(0.10, 0.10, 0.11)
 const HALO_HOVER := Color(0.42, 0.46, 0.52)
 const HALO_ON    := Color(1.00, 0.72, 0.30)     # warm amber - a common choice
+
+## Clear space between the button and its braille (ADA 703.3.2 asks 9.5 mm min).
+const BRAILLE_GAP := 0.010
 
 var key := ""
 var _halo: MeshInstance3D
@@ -23,7 +26,7 @@ var _flash := 0.0
 
 
 static func create(parent: Node3D, p_key: String, pos: Vector3,
-		text := "", radius := 0.045, face_z := 1.0, braille := false) -> Btn3D:
+		text := "", radius := 0.045, face_z := 1.0, braille := "") -> Btn3D:
 	var b := Btn3D.new()
 	b.key = p_key
 	b.position = pos
@@ -61,17 +64,19 @@ static func create(parent: Node3D, p_key: String, pos: Vector3,
 		if fz < 0:
 			l.rotation_degrees = Vector3(0, 180, 0)
 
-	# --- braille plate -----------------------------------------
-	if braille:
-		var bp := Node3D.new()
-		bp.position = Vector3(-radius * 1.9, -radius * 0.15, 0.003 * fz)
-		b.add_child(bp)
-		for i in range(3):
-			for j in range(2):
-				if (i + j) % 2 == 0:
-					Vis.cyl(bp, 0.0028, 0.0022,
-							Vector3(j * 0.008, -i * 0.008, 0),
-							Vis.mat("inox")).rotation_degrees = Vector3(90, 0, 0)
+	# --- braille -------------------------------------------------------------
+	# ADA 407.4.7.1.2 puts the braille immediately to the LEFT of its control,
+	# and 703.3.2 asks for at least 9.5 mm of clear space from the character it
+	# labels, so the block is right-aligned against the button and grows away
+	# from it. Sizes and spacing live in Braille.gd, straight from the spec.
+	if braille != "":
+		var n := Braille.cells(braille).size()
+		var x_right := -(radius + BRAILLE_GAP)
+		Braille.render(b, braille,
+				Vector3((x_right - Braille.width(n)) * fz,
+						Braille.height() * 0.5,
+						b._cap_z + 0.0015 * fz),
+				fz, Vis.mat("braille"))
 
 	# --- click area ------------------------------------------------------
 	var shape := CollisionShape3D.new()

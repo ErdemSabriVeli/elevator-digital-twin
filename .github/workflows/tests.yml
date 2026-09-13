@@ -45,3 +45,6 @@ jobs:
 
       - name: Modbus TCP protocol
         run: ./godot-bin --headless --path godot --script res://tests/modbus_test.gd
+
+      - name: Braille signage
+        run: ./godot-bin --headless --path godot --script res://tests/braille_test.gd

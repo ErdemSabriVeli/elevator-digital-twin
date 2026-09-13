@@ -97,7 +97,7 @@ godot --path godot -- --plc modbus --host 192.168.1.10 --port 502
 |---|---|
 | `codesys/` | Structured Text sources (the authoritative control logic) |
 | `godot/scripts/` | 3D plant model, physics, Modbus client, ST twin |
-| `godot/tests/` | ST lint, parity, geometry, scenario and protocol tests |
+| `godot/tests/` | ST lint, parity, geometry, scenario, protocol and braille tests |
 | `docs/` | [I/O map](docs/io-map.md), [CODESYS setup](docs/codesys-setup.md), [demo scenarios](docs/demo-scenarios.md) |
 
 ### CODESYS POUs
@@ -130,7 +130,8 @@ godot --path godot -- --plc modbus --host 192.168.1.10 --port 502
 | `CarRig.gd` | Car, car door, control panel |
 | `MaterialLib.gd` | Materials, procedural textures, mesh/arc helpers |
 | `LedDisplay.gd` | Red dot-matrix indicator (car + every landing) |
-| `Button3D.gd` | Clickable illuminated button |
+| `Button3D.gd` | Clickable illuminated button, with its braille label |
+| `Braille.gd` | Braille encoding + ADA dot geometry for the tactile signage |
 | `CameraRig.gd` | Exterior / in-car / landing / machine cameras |
 | `Hud.gd` | Status panel, live register table, fault injection |
 | `AudioRig.gd` | Procedural audio synthesis (machine, door, gong, alarm, brake) |
@@ -215,7 +216,11 @@ textures are generated in code at run time (no external asset files).
 
 **COP (car operating panel)** — on the right front return wall
 - Red dot-matrix indicator at the top, overload warning strip beneath it
-- Two columns of round buttons (bottom-up G→5), braille beside each
+- Two columns of round buttons (bottom-up G→5)
+- Real braille to the left of every button — floor numbers carry a number
+  sign, so "3" is two cells, and the door and alarm buttons are labelled too.
+  Dot size, height and spacing follow ADA 703.3 / BANA, which is an ergonomic
+  spec rather than styling: dots outside it cannot be read by touch.
 - Door open / door close / alarm, key switch, emergency phone grille
 - Car capacity plate (630 kg / 8 persons)
 
@@ -329,7 +334,7 @@ detect it from its own inputs.
 
 ## Performance
 
-The scene runs at ~138 FPS at 1600×900. There is a built-in profiling mode:
+The scene runs at ~135 FPS at 1600×900. There is a built-in profiling mode:
 
 ```bash
 godot --path godot -- --profile 8
@@ -342,8 +347,8 @@ Measurement-driven improvements:
 
 | | Before | After |
 |---|---|---|
-| Draw calls | 2907 | 711 |
-| Triangles | 804 k | 512 k |
+| Draw calls | 2907 | 714 |
+| Triangles | 804 k | 519 k |
 | Script time (frame) | 1.21 ms | 0.52 ms |
 | Video memory | 480 MB | 425 MB |
 
@@ -365,7 +370,7 @@ Measurement-driven improvements:
 
 ## Tests
 
-All five run headless with no dependency beyond Godot.
+All six run headless with no dependency beyond Godot.
 
 ```bash
 godot --headless --path godot --script res://tests/st_lint_test.gd
@@ -418,6 +423,18 @@ counterweight centres, clearance between the traction sheave / deflector and the
 car-top guard rail with the car at the top floor, the counterweight's pit buffer
 and upper limit, car–counterweight horizontal separation, and the governor
 rope's distance from the car and the door zone.
+
+```bash
+godot --headless --path godot --script res://tests/braille_test.gd
+```
+
+**Braille signage.** Wrong braille still looks like plausible dots in a
+screenshot, so this reads the raised dots back out of the built 3D panel and
+decodes them. It checks the encoding against the standard (written out
+literally in the test, so it cannot just agree with the renderer), that digits
+carry a number sign — without it "3" reads as the letter "c" — that no two
+buttons share a pattern, that dot size and spacing sit inside ADA 703.3 / BANA,
+and that each block fits the panel and clears its neighbour.
 
 ---
 

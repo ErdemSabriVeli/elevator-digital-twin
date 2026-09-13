@@ -277,20 +277,20 @@ func _build_cop() -> void:
 		var y := 1.34 + float(row) * 0.078
 		var x := (-COP_X if col == 0 else COP_X)
 		var b := Btn3D.create(pivot, "car_%d" % f, Vector3(x, y, 0.020),
-				LiftIo.floor_name(f), BTN_R, 1.0, true)
+				LiftIo.floor_name(f), BTN_R, 1.0, LiftIo.floor_name(f))
 		b.pushed.connect(_btn_cb)
 		floor_buttons[f] = b
 	var _unused := rows
 
 	# --- door open / close / alarm ------------------------------------------
 	btn_open = Btn3D.create(pivot, "door_open", Vector3(-COP_X, 1.18, 0.020),
-			"<|>", BTN_R * 0.92)
+			"<|>", BTN_R * 0.92, 1.0, "OPEN")
 	btn_open.pushed.connect(_btn_cb)
 	btn_close = Btn3D.create(pivot, "door_close", Vector3(COP_X, 1.18, 0.020),
-			">|<", BTN_R * 0.92)
+			">|<", BTN_R * 0.92, 1.0, "CLOSE")
 	btn_close.pushed.connect(_btn_cb)
 	btn_alarm = Btn3D.create(pivot, "alarm", Vector3(-COP_X, 1.09, 0.020),
-			"!", BTN_R * 0.92)
+			"!", BTN_R * 0.92, 1.0, "ALARM")
 	btn_alarm.pushed.connect(_btn_cb)
 
 	# key switch (bottom right)

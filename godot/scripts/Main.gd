@@ -385,28 +385,28 @@ func _profile_run(secs: float) -> void:
 				int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)))
 		samples += 1
 
-	print("\n===== PERFORMANS PROFILI =====")
-	print("Ortalama FPS      : %.1f" % (fps_sum / maxf(1.0, float(samples))))
-	print("Kare suresi (islem): %.2f ms" % (Performance.get_monitor(
+	print("\n===== PERFORMANCE PROFILE =====")
+	print("Average FPS        : %.1f" % (fps_sum / maxf(1.0, float(samples))))
+	print("Frame time (process): %.2f ms" % (Performance.get_monitor(
 			Performance.TIME_PROCESS) * 1000.0))
-	print("Kare suresi (fizik): %.2f ms" % (Performance.get_monitor(
+	print("Frame time (physics): %.2f ms" % (Performance.get_monitor(
 			Performance.TIME_PHYSICS_PROCESS) * 1000.0))
-	print("Cizim cagrisi (max): %d" % draw_max)
-	print("Ucgen/primitif(max): %d" % prim_max)
-	print("Nesne sayisi      : %d" % int(Performance.get_monitor(Performance.OBJECT_COUNT)))
-	print("Dugum sayisi      : %d" % int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)))
-	print("Kaynak sayisi     : %d" % int(Performance.get_monitor(
+	print("Draw calls    (peak): %d" % draw_max)
+	print("Primitives    (peak): %d" % prim_max)
+	print("Objects            : %d" % int(Performance.get_monitor(Performance.OBJECT_COUNT)))
+	print("Nodes              : %d" % int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)))
+	print("Resources          : %d" % int(Performance.get_monitor(
 			Performance.OBJECT_RESOURCE_COUNT)))
-	print("Video bellek      : %.1f MB" % (Performance.get_monitor(
+	print("Video memory       : %.1f MB" % (Performance.get_monitor(
 			Performance.RENDER_VIDEO_MEM_USED) / 1048576.0))
 
 	var n := maxi(1, _prof_frames)
-	print("--- _physics_process dagilimi (%d kare) ---" % n)
-	print("  tesis modeli    : %6.3f ms" % (_prof_plant / float(n) / 1000.0))
-	print("  PLC cevrimi     : %6.3f ms" % (_prof_plc / float(n) / 1000.0))
-	print("  3B guncelleme   : %6.3f ms" % (_prof_vis / float(n) / 1000.0))
-	print("  HUD guncelleme  : %6.3f ms" % (_prof_hud / float(n) / 1000.0))
-	print("  TOPLAM (kod)    : %6.3f ms" %
+	print("--- _physics_process breakdown (%d frames) ---" % n)
+	print("  plant model      : %6.3f ms" % (_prof_plant / float(n) / 1000.0))
+	print("  PLC scan         : %6.3f ms" % (_prof_plc / float(n) / 1000.0))
+	print("  3D update        : %6.3f ms" % (_prof_vis / float(n) / 1000.0))
+	print("  HUD update       : %6.3f ms" % (_prof_hud / float(n) / 1000.0))
+	print("  TOTAL (script)   : %6.3f ms" %
 			((_prof_plant + _prof_plc + _prof_vis + _prof_hud) / float(n) / 1000.0))
 	print("==============================")
 	get_tree().quit()
