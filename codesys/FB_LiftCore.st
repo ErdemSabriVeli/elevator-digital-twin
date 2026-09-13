@@ -526,7 +526,9 @@ fbMotion(
     xRescue      := (eState = LS_RESCUE),
     xRelevel     := (eState = LS_RELEVEL),
     xRelevelUp   := stIn.xRelevelUp,
-    xRelevelDown := stIn.xRelevelDown
+    xRelevelDown := stIn.xRelevelDown,
+    xNtsTop      := stIn.xNtsTop,
+    xNtsBot      := stIn.xNtsBot
 );
 
 // ===========================================================================

@@ -221,6 +221,8 @@ func test_bit_map() -> void:
 		"xDoorLocked": "LIM_DOOR_LOCK", "xBrakeFb": "LIM_BRAKE_FB",
 		"xSafetyChain": "LIM_SAFETY", "xGovernorOk": "LIM_GOVERNOR",
 		"xSafetyGear": "LIM_SAFETY_GEAR", "xMainsOk": "LIM_MAINS_OK",
+		"xRelevelUp": "LIM_RELEVEL_UP", "xRelevelDown": "LIM_RELEVEL_DN",
+		"xNtsTop": "LIM_NTS_TOP", "xNtsBot": "LIM_NTS_BOT",
 	}
 	_cmp_getbits(src, "wCmd", cmd_map, io)
 	_cmp_getbits(src, "wLim", lim_map, io)

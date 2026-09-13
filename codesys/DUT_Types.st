@@ -132,6 +132,8 @@ STRUCT
        car hanging lower on a stretched rope. *)
     xRelevelUp     : BOOL;   // car is BELOW floor level -> creep up
     xRelevelDown   : BOOL;   // car is ABOVE floor level -> creep down
+    xNtsTop        : BOOL;   // terminal slowdown cam, top end
+    xNtsBot        : BOOL;   // terminal slowdown cam, bottom end
 
     // Mode selectors
     xEStop         : BOOL;

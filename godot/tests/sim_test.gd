@@ -41,6 +41,7 @@ func _initialize() -> void:
 	test_full_load_bypass()
 	test_door_zone_interlock()
 	test_encoder_correction()
+	test_terminal_slowdown()
 
 	print("\n=== RESULT: %s ===" % ("ALL TESTS PASSED" if failures == 0
 			else "%d FAILED" % failures))
@@ -909,3 +910,92 @@ func test_encoder_correction() -> void:
 			"(code=%d %s)" % [fault(), LiftIo.FAULT_TEXT[fault()]])
 	check("and the doors stayed shut with no vane to confirm the floor",
 			plant.door_pos < 0.01, "(door=%.0f%%)" % (plant.door_pos * 100))
+
+
+func test_terminal_slowdown() -> void:
+	print("\n21) Terminal slowdown: the cams do not believe the encoder")
+
+	# On a healthy lift the cams are invisible: they sit just above what the
+	# approach curve wants there, so they never bite.
+	reset(0)
+	var peak_healthy := 0.0
+	press_for("car_5")
+	var elapsed := 0.0
+	while elapsed < 45.0:
+		plant.apply_outputs(regs_out)
+		plant.step(DT)
+		hb = (hb + 1) % 32000
+		regs_out = plc.scan(plant.build_registers(hb), DT)
+		elapsed += DT
+		peak_healthy = maxf(peak_healthy, absf(plant.speed_mms))
+		if status(LiftIo.ST_DOOR_OPEN):
+			break
+	check("a normal run still reaches rated speed",
+			peak_healthy > float(LiftCfg.V_RATED_MMS) * 0.95,
+			"(peak %.0f mm/s of %d)" % [peak_healthy, LiftCfg.V_RATED_MMS])
+
+	# Now take away everything else. The vane sensor dies AND the count jumps
+	# back three metres, so the controller thinks it has much further to go and
+	# keeps asking for rated speed straight at the top terminal. With no vane to
+	# contradict the count while the car is moving, the cams are the only thing
+	# left in the shaft that still knows where the terminal is. That is the
+	# whole reason they are wired independently of the encoder.
+	reset(0)
+	press_for("car_5")
+	step_until(func(): return plant.pos_mm > 12000.0, 30.0)
+	plant.sw_vane_dead = true
+	plant.slip_encoder(-3000.0)
+	var top_mm := float(LiftCfg.TOP_FLOOR * LiftCfg.FLOOR_HEIGHT_MM)
+	var speed_at_top := 0.0
+	var overrun := 0.0
+	elapsed = 0.0
+	while elapsed < 25.0:
+		plant.apply_outputs(regs_out)
+		plant.step(DT)
+		hb = (hb + 1) % 32000
+		regs_out = plc.scan(plant.build_registers(hb), DT)
+		elapsed += DT
+		if plant.car_pos_mm() >= top_mm and speed_at_top == 0.0:
+			speed_at_top = maxf(absf(plant.speed_mms), 0.01)
+		overrun = maxf(overrun, plant.car_pos_mm() - top_mm)
+		if absf(plant.speed_mms) < 1.0 and elapsed > 2.0:
+			break
+
+	var with_cam := speed_at_top
+	var hit_with_cam := plant.buffer_struck
+	check("the cam slowed it before the terminal",
+			speed_at_top < float(LiftCfg.V_RATED_MMS) * 0.85,
+			"(crossed the top floor at %.0f mm/s instead of %d)"
+					% [speed_at_top, LiftCfg.V_RATED_MMS])
+	check("the limit switch then stopped it short of the buffer",
+			not hit_with_cam and overrun < float(LiftCfg.OVERTRAVEL_MM) + LiftCfg.RUNBY_MM,
+			"(overran %.0f mm; switch at %d, buffer at %.0f)"
+					% [overrun, LiftCfg.OVERTRAVEL_MM,
+					LiftCfg.OVERTRAVEL_MM + LiftCfg.RUNBY_MM])
+
+	# Same fault again with the cams dead. Now nothing in the shaft slows the
+	# car before the limit switch, and the brake alone cannot stop it in the
+	# runby - it reaches the buffer. That gap is what the cams buy.
+	reset(0)
+	plant.sw_nts_dead = true
+	press_for("car_5")
+	step_until(func(): return plant.pos_mm > 12000.0, 30.0)
+	plant.sw_vane_dead = true
+	plant.slip_encoder(-3000.0)
+	var bare_top := 0.0
+	elapsed = 0.0
+	while elapsed < 25.0:
+		plant.apply_outputs(regs_out)
+		plant.step(DT)
+		hb = (hb + 1) % 32000
+		regs_out = plc.scan(plant.build_registers(hb), DT)
+		elapsed += DT
+		if plant.car_pos_mm() >= top_mm and bare_top == 0.0:
+			bare_top = maxf(absf(plant.speed_mms), 0.01)
+		if absf(plant.speed_mms) < 1.0 and elapsed > 2.0:
+			break
+	check("without the cams it arrives at the terminal much faster",
+			bare_top > with_cam + 200.0,
+			"(%.0f mm/s against %.0f with the cams)" % [bare_top, with_cam])
+	check("and reaches the buffer, which is what the cams prevent",
+			plant.buffer_struck, "(buffer struck: %s)" % plant.buffer_struck)

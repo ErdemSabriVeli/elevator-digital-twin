@@ -117,6 +117,8 @@ class Inputs extends RefCounted:
 	var mains_ok := true
 	var relevel_up := false
 	var relevel_down := false
+	var nts_top := false          # terminal slowdown cam, top end
+	var nts_bot := false          # terminal slowdown cam, bottom end
 
 	var estop := false
 	var overload := false
@@ -528,6 +530,7 @@ class Motion extends RefCounted:
 			inspection: bool, insp_up: bool, insp_down: bool,
 			load_kg: int, act_speed_mms: int, rescue: bool,
 			relevel: bool, relevel_up: bool, relevel_down: bool,
+			nts_top: bool, nts_bot: bool,
 			dt: float) -> void:
 
 		# --- pre-torque (load compensation) ---------------------------------
@@ -704,6 +707,14 @@ class Motion extends RefCounted:
 		var v_peak: int = maxi(LiftCfg.V_LEVEL_MMS,
 				int(float(LiftCfg.V_RATED_MMS) * sqrt(run_frac)))
 		speed_sp = mini(speed_sp, v_peak)
+
+		# Normal terminal slowdown. These cams are wired straight from the shaft
+		# and owe nothing to the encoder, which is the point: if the count has
+		# drifted or jumped, the profile above is computing a speed for a place
+		# the car is not, and this is the only thing left that still knows how
+		# close the terminal is.
+		if (err_mm > 0 and nts_top) or (err_mm < 0 and nts_bot):
+			speed_sp = mini(speed_sp, LiftCfg.V_NTS_MMS)
 
 		# The battery behind the rescue drive is small: it only ever moves the car
 		# at creep speed, and only as far as the next floor.
@@ -1160,7 +1171,8 @@ class LiftCore extends RefCounted:
 				target_flr, _pos_corr, inp.top_limit, inp.bot_limit,
 				inp.inspection, inp.insp_up, inp.insp_down, inp.load_kg,
 				inp.act_speed_mms, state == LiftIo.State.RESCUE,
-				relevelling, inp.relevel_up, inp.relevel_down, dt)
+				relevelling, inp.relevel_up, inp.relevel_down,
+				inp.nts_top, inp.nts_bot, dt)
 
 		# --- 8) outputs --------------------------------------------------------
 		out.drive_enable = motion.drive_enable
@@ -1253,6 +1265,8 @@ func scan(mb_in: PackedInt32Array, dt: float) -> PackedInt32Array:
 	_inp.mains_ok = LiftIo.get_bit(lim, LiftIo.LIM_MAINS_OK)
 	_inp.relevel_up = LiftIo.get_bit(lim, LiftIo.LIM_RELEVEL_UP)
 	_inp.relevel_down = LiftIo.get_bit(lim, LiftIo.LIM_RELEVEL_DN)
+	_inp.nts_top = LiftIo.get_bit(lim, LiftIo.LIM_NTS_TOP)
+	_inp.nts_bot = LiftIo.get_bit(lim, LiftIo.LIM_NTS_BOT)
 
 	_inp.pos_mm = LiftIo.to_signed(mb_in[LiftIo.IN_POS_MM])
 	_inp.act_speed_mms = mb_in[LiftIo.IN_SPEED_MMS]

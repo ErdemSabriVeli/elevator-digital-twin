@@ -20,6 +20,16 @@ const DOOR_ZONE_MM       := 60
 const LEVEL_TOL_MM       := 8
 const RELEVEL_MM         := 10        # out by this much at a floor -> re-level
 const OVERTRAVEL_MM      := 400
+# Normal terminal slowdown: a cam in the shaft trips a switch this far from the
+# terminal floor, and beyond it the drive may not be asked for more than
+# V_NTS. It is deliberately just above what the normal approach curve wants
+# there, so it does nothing on a healthy lift and everything on a lost one.
+const NTS_DIST_MM        := 1200
+const V_NTS_MMS          := 1150
+# Runby: how far the car may still travel past the terminal limit switch before
+# it reaches the buffer. It has to cover the brake's stopping distance from
+# V_NTS, which is the fastest the car can still be going when that switch trips.
+const RUNBY_MM           := 300.0
 
 const V_RATED_MMS        := 1600
 const V_LEVEL_MMS        := 150

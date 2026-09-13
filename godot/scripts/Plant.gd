@@ -35,6 +35,12 @@ var sw_no_load_comp := false      # drive ignores the pre-torque reference
 var sw_mains_fail := false        # mains supply lost
 var sw_brake_creep := false       # worn brake: a held car sinks slowly
 var sw_vane_dead := false         # the car's floor-zone sensor has failed
+var sw_nts_dead := false          # terminal slowdown cams not reporting
+
+## Set when the car reaches the buffer at the end of the shaft. The buffer is
+## the last thing between the car and the pit floor or the slab, so touching it
+## at all is a reportable event, not a normal stop.
+var buffer_struck := false
 
 ## Safety gear: the wedges the governor pulls onto the guide rails once the car
 ## passes the mechanical trip speed. It is not a fault the panel can clear -
@@ -274,14 +280,21 @@ func step(dt: float) -> void:
 		_slip_mm += d_mm * rope_slip_frac
 
 	# --- mechanical limit (buffer) -----------------------------------------
-	var pos_min := -float(LiftCfg.OVERTRAVEL_MM) - 100.0
-	var pos_max := float(LiftCfg.TOP_FLOOR * LiftCfg.FLOOR_HEIGHT_MM + LiftCfg.OVERTRAVEL_MM) + 100.0
-	if pos_mm <= pos_min:
-		pos_mm = pos_min
+	# The buffer stops the CAR, not the count. Clamp the car and put the count
+	# back to whatever payout leaves it there — the rope goes slack rather than
+	# the car going further.
+	var car_min := -float(LiftCfg.OVERTRAVEL_MM) - LiftCfg.RUNBY_MM
+	var car_max := float(LiftCfg.TOP_FLOOR * LiftCfg.FLOOR_HEIGHT_MM
+			+ LiftCfg.OVERTRAVEL_MM) + LiftCfg.RUNBY_MM
+	var c := car_pos_mm()
+	if c <= car_min:
+		pos_mm += car_min - c
 		speed_mms = 0.0
-	elif pos_mm >= pos_max:
-		pos_mm = pos_max
+		buffer_struck = true
+	elif c >= car_max:
+		pos_mm += car_max - c
 		speed_mms = 0.0
+		buffer_struck = true
 
 	# --- door ---------------------------------------------------------------
 	# The door motor only runs while the car is nearly stopped (mechanical
@@ -365,8 +378,12 @@ func build_registers(heartbeat: int) -> PackedInt32Array:
 	r[LiftIo.IN_FLOOR_ZONE] = zone
 
 	# --- limits and lock ---------------------------------------------------
-	var top_lim := pos_mm >= float(LiftCfg.TOP_FLOOR * LiftCfg.FLOOR_HEIGHT_MM + LiftCfg.OVERTRAVEL_MM)
-	var bot_lim := pos_mm <= -float(LiftCfg.OVERTRAVEL_MM)
+	# Terminal limit switches are cams in the shaft tripped by the car. Reading
+	# them off the encoder would make them useless in the one case they exist
+	# for: a count that no longer matches the car.
+	var top_lim := car_pos_mm() >= float(LiftCfg.TOP_FLOOR * LiftCfg.FLOOR_HEIGHT_MM
+			+ LiftCfg.OVERTRAVEL_MM)
+	var bot_lim := car_pos_mm() <= -float(LiftCfg.OVERTRAVEL_MM)
 	var d_open := door_pos >= 0.995
 	var d_close := door_pos <= 0.005
 	# Landing door lock chain: counted as locked when the door is fully closed
@@ -392,6 +409,13 @@ func build_registers(heartbeat: int) -> PackedInt32Array:
 			in_zone and off < -float(LiftCfg.RELEVEL_MM))
 	lim = LiftIo.set_bit(lim, LiftIo.LIM_RELEVEL_DN,
 			in_zone and off > float(LiftCfg.RELEVEL_MM))
+	# Terminal slowdown cams. Fixed to the shaft, read by the car - they owe
+	# nothing to the encoder, which is the whole reason they are there.
+	var top_mm := float(LiftCfg.TOP_FLOOR * LiftCfg.FLOOR_HEIGHT_MM)
+	lim = LiftIo.set_bit(lim, LiftIo.LIM_NTS_TOP, not sw_nts_dead
+			and car_pos_mm() >= top_mm - float(LiftCfg.NTS_DIST_MM))
+	lim = LiftIo.set_bit(lim, LiftIo.LIM_NTS_BOT, not sw_nts_dead
+			and car_pos_mm() <= float(LiftCfg.NTS_DIST_MM))
 	r[LiftIo.IN_LIMITS] = lim
 
 	# --- analogue ----------------------------------------------------------
@@ -405,6 +429,14 @@ func build_registers(heartbeat: int) -> PackedInt32Array:
 	r[LiftIo.IN_HEARTBEAT] = heartbeat & 0x7FFF
 
 	return r
+
+
+## Jumps the encoder count without moving the car — a slipping encoder coupling,
+## or a count lost across an interruption. The car stays exactly where it is;
+## only what the controller is told changes.
+func slip_encoder(mm: float) -> void:
+	pos_mm += mm
+	_slip_mm += mm
 
 
 ## Frees the safety gear wedges. On a real lift this is a hands-on job at the

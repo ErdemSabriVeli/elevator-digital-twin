@@ -27,6 +27,8 @@ VAR_INPUT
     xRelevel     : BOOL;      // re-levelling at a floor, doors open
     xRelevelUp   : BOOL;      // levelling vane: car is low
     xRelevelDown : BOOL;      // levelling vane: car is high
+    xNtsTop      : BOOL;      // terminal slowdown cam, top end
+    xNtsBot      : BOOL;      // terminal slowdown cam, bottom end
 END_VAR
 VAR_OUTPUT
     xDriveEnable  : BOOL;
@@ -274,6 +276,16 @@ IF iVPeak < C_V_LEVEL_MMS THEN
 END_IF
 IF iSpeedSp > iVPeak THEN
     iSpeedSp := iVPeak;
+END_IF
+
+(* Normal terminal slowdown. These cams are wired straight from the shaft and
+   owe nothing to the encoder, which is the point: if the count has drifted or
+   jumped, the profile above is computing a speed for a place the car is not,
+   and this is the only thing left that still knows how close the terminal is. *)
+IF ((diErrMM > 0) AND xNtsTop) OR ((diErrMM < 0) AND xNtsBot) THEN
+    IF iSpeedSp > C_V_NTS_MMS THEN
+        iSpeedSp := C_V_NTS_MMS;
+    END_IF
 END_IF
 
 // The battery behind the rescue drive is small: it only ever moves the car at

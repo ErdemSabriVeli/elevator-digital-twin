@@ -18,6 +18,13 @@ VAR_GLOBAL CONSTANT
     C_LEVEL_TOL_MM     : DINT := 8;      // "arrived at floor" tolerance
     C_RELEVEL_MM       : DINT := 10;     // out by this much at a floor -> re-level
     C_OVERTRAVEL_MM    : DINT := 400;    // distance to the end limit switch
+    (* Normal terminal slowdown: a cam in the shaft trips a switch this far
+       from the terminal floor, and beyond it the drive may not be asked for
+       more than C_V_NTS_MMS. Set just above what the normal approach curve
+       wants there, so it does nothing on a healthy lift and everything on a
+       lift that has lost track of itself. *)
+    C_NTS_DIST_MM      : DINT := 1200;
+    C_V_NTS_MMS        : INT  := 1150;
 
     // --- Drive profile ------------------------------------------------------
     C_V_RATED_MMS      : INT  := 1600;   // rated speed

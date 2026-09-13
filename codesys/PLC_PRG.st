@@ -69,6 +69,8 @@ GVL_IO.g_stIn.xSafetyGear     := F_GetBit(wLim, 8);
 GVL_IO.g_stIn.xMainsOk        := F_GetBit(wLim, 9);
 GVL_IO.g_stIn.xRelevelUp      := F_GetBit(wLim, 10);
 GVL_IO.g_stIn.xRelevelDown    := F_GetBit(wLim, 11);
+GVL_IO.g_stIn.xNtsTop         := F_GetBit(wLim, 12);
+GVL_IO.g_stIn.xNtsBot         := F_GetBit(wLim, 13);
 
 // Analogue values
 (* Signed: the car really can sit below the bottom floor, in the pit, and a

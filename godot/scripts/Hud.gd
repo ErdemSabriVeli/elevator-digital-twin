@@ -208,6 +208,7 @@ func _build_control_panel() -> void:
 	_mk_switch(vb, "mains", "Mains failure (battery rescue)")
 	_mk_switch(vb, "creep", "Worn brake (car sinks at the floor)")
 	_mk_switch(vb, "vane", "Floor sensor dead")
+	_mk_switch(vb, "nts", "Terminal slowdown cams dead")
 
 	var hb4 := HBoxContainer.new()
 	vb.add_child(hb4)

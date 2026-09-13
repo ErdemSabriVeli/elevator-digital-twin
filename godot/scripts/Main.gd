@@ -319,6 +319,7 @@ func _on_switch(name: String, v: bool) -> void:
 		"mains": plant.sw_mains_fail = v
 		"creep": plant.sw_brake_creep = v
 		"vane": plant.sw_vane_dead = v
+		"nts": plant.sw_nts_dead = v
 
 
 # =============================================================================

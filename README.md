@@ -240,8 +240,22 @@ After 15 s "nudge" (slow forced closing) kicks in. The panels are driven with a
 velocity envelope that slows near both ends and speeds up in the middle — a real
 door operator does the same to protect the mechanism and avoid slamming.
 
-**Safety:** emergency stop, safety chain, terminal limit switches, loss of door
-lock, door / travel timeout, encoder–floor-sensor mismatch, plus:
+**Safety:** emergency stop, safety chain, loss of door lock, door / travel
+timeout, encoder-floor-sensor mismatch, plus:
+
+- **Terminal protection, in three stages.** A cam in the shaft trips the
+  **normal terminal slowdown** switch 1200 mm from each terminal floor, and
+  beyond it the drive may not be asked for more than 1150 mm/s. It sits just
+  above what the approach curve wants there, so on a healthy lift it never
+  bites. Past the floor the **terminal limit switch** at 400 mm cuts the drive
+  and faults; 300 mm of runby beyond that is the **buffer**.
+
+  The point of the cams is that they are wired from the shaft and owe nothing
+  to the encoder — they are what is left when the count is wrong, which is the
+  only situation they exist for. With the count jumped 3 m and the floor sensor
+  dead, the car crosses the top floor at 1221 mm/s instead of 1600 and the limit
+  switch stops it 110 mm short of the buffer; with the cams dead too, it reaches
+  the buffer.
 
 - **Overspeed (governor), two stages.** These are two separate devices and the
   model treats them that way. At 115 % of rated (1840 mm/s, held 0.3 s) the
@@ -284,7 +298,8 @@ car shows `E` and the doors stay open until the mains return.
 for 2 s the PLC treats the safety chain as open and refuses to move the car, full-load bypass, and the unlocking-zone door
 interlock (checked against the plant directly, not only through the controller),
 and encoder drift being trimmed against the vanes — including that gross slip
-and a dead sensor are still reported rather than absorbed.
+and a dead sensor are still reported rather than absorbed — and terminal
+slowdown, measured against the same fault with the cams disabled.
 
 ---
 
@@ -424,6 +439,7 @@ detect it from its own inputs.
 | Car jammed | Drive runs but position does not advance | 3 — Travel timeout |
 | Rope slip | The sheave turns and the count rises, but the rope creeps and the car falls behind | (trimmed away at each floor; only gross slip reaches 6 — Encoder mismatch) |
 | Floor sensor dead | The car-mounted vane sensor stops reporting | 6 — Encoder mismatch |
+| Terminal slowdown cams dead | The shaft cams stop reporting | (no fault on its own — it removes the last protection if the count is also wrong) |
 | Light curtain | Door permanently obstructed | (not a fault — the door reopens) |
 | No load compensation | Drive ignores the pre-torque reference | (not a fault — the car rolls back at the start) |
 | Mains failure | Supply lost, then the battery changeover | (not a fault — the ARD runs the car to the nearest floor) |
@@ -503,7 +519,7 @@ indices in `PLC_PRG.st` (32 bits).
 godot --headless --path godot --script res://tests/sim_test.gd
 ```
 
-20 scenarios: car call and levelling, collective control, emergency stop +
+21 scenarios: car call and levelling, collective control, emergency stop +
 reset, overload start inhibit, fire evacuation (including a regression for the
 doors staying open), light curtain, travel timeout and recovery from a fault,
 brake feedback, overspeed, gong duration + alarm bell, ride quality (jerk and
@@ -581,10 +597,9 @@ To be straight about it, this is the part of the project that is not verified:
   the first build.
 - Single-car system — group control (a shared dispatcher across several
   elevators) is not modelled.
-- Still absent on the control side, and all of it is real equipment:
-  firefighter Phase II (operating the car from inside after the recall),
-  independent / attendant service, and terminal slowdown switches as a stage
-  separate from the final limits.
+- Still absent on the control side, and both are real equipment: firefighter
+  Phase II (operating the car from inside after the recall) and independent /
+  attendant service.
 - The door is a position model with a velocity envelope, not a force model:
   closing force and the reversal counter that pushes a repeatedly obstructed
   door into nudging are not represented.

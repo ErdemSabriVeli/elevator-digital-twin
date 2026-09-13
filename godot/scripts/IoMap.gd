@@ -54,6 +54,8 @@ const LIM_MAINS_OK    := 9     # mains supply healthy
 # it cannot see the car hanging lower on a stretched rope.
 const LIM_RELEVEL_UP  := 10    # car is BELOW floor level -> creep up
 const LIM_RELEVEL_DN  := 11    # car is ABOVE floor level -> creep down
+const LIM_NTS_TOP     := 12    # terminal slowdown cam, top end
+const LIM_NTS_BOT     := 13    # terminal slowdown cam, bottom end
 
 # =============================================================================
 # PLC -> Godot   (Input Registers)
