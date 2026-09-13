@@ -250,6 +250,7 @@ class CallRegistry extends RefCounted:
 # =============================================================================
 class Dispatcher extends RefCounted:
 	var latch: CallSet
+	var bypass_hall := false      # car is full: serve car calls only
 	var target := -1
 	var new_dir := LiftIo.DIR_NONE
 	var has_job := false
@@ -309,6 +310,11 @@ class Dispatcher extends RefCounted:
 			return false
 		if latch.car[f]:
 			return true
+		# A full car drives past landings. The calls stay registered and lit -
+		# someone still wants to travel, this car just is not the one that can
+		# take them.
+		if bypass_hall:
+			return false
 		match dir:
 			LiftIo.DIR_UP:
 				if latch.up[f]:
@@ -327,6 +333,10 @@ class Dispatcher extends RefCounted:
 	func call_at(f: int) -> bool:
 		if f < 0 or f > LiftCfg.TOP_FLOOR:
 			return false
+		if bypass_hall:
+			# Full car: landing calls are invisible to the search, so the
+			# dispatcher will not even pick one as a target.
+			return latch.car[f]
 		return latch.up[f] or latch.down[f] or latch.car[f]
 
 	func any_above(f: int) -> bool:
@@ -858,6 +868,9 @@ class LiftCore extends RefCounted:
 				not inp.inspection and not safety.is_fault and not inp.fire_call)
 
 		# --- 4) target selection ----------------------------------------------
+		# A car at 80 % of rated has no room for the people waiting at a landing,
+		# so it drives past them. Their call stays registered and lit.
+		disp.bypass_hall = inp.load_kg >= LiftCfg.LOAD_BYPASS_KG
 		disp.scan(cur_floor, dir)
 
 		# --- 5) the main state machine ----------------------------------------

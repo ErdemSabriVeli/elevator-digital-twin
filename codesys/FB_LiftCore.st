@@ -49,6 +49,7 @@ VAR
     xGongArm    : BOOL;
     xFireParked : BOOL;   // reached the recall floor (the fire mode latch)
     xRescueParked : BOOL; // the rescue run has reached a floor
+    xBypassHall : BOOL;   // car full: landing calls are not this car's job
     diNetKg     : DINT;
     iFloorBelow : INT;
     iFloorAbove : INT;
@@ -121,9 +122,14 @@ fbCalls(
 // ===========================================================================
 // 4) TARGET SELECTION
 // ===========================================================================
+(* A car at 80% of rated has no room for the people waiting at a landing, so it
+   drives past them. Their call stays registered and lit. *)
+xBypassHall := stIn.iLoadKg >= C_LOAD_BYPASS_KG;
+
 fbDisp(
     iCurrentFloor := iCurFloor,
     eCurDir       := eDir,
+    xBypassHall   := xBypassHall,
     stLatch       := stLatch
 );
 

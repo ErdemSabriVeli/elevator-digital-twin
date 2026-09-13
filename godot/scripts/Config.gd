@@ -50,6 +50,7 @@ const PARK_FLOOR         := 0
 const FIRE_FLOOR         := 0
 const LOAD_FULL_KG       := 630
 const LOAD_OVER_KG       := 693
+const LOAD_BYPASS_KG     := 504       # 80 % of rated: full car, skip hall calls
 
 # Masses. The counterweight balances the empty car plus HALF the rated load
 # (a 50 % balance factor, the usual choice). So the machine only ever has to

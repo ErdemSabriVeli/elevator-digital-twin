@@ -58,6 +58,8 @@ VAR_GLOBAL CONSTANT
     C_FIRE_FLOOR       : INT  := 0;      // fire evacuation floor
     C_LOAD_FULL_KG     : INT  := 630;
     C_LOAD_OVER_KG     : INT  := 693;    // 110% -> overload
+    C_LOAD_BYPASS_KG   : INT  := 504;    // 80% of rated -> full car, drive past
+                                         // landing calls
 
     // Masses. The counterweight balances the empty car plus HALF the rated
     // load (a 50% balance factor, the usual choice), so the machine only ever

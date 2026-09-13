@@ -38,6 +38,7 @@ func _initialize() -> void:
 	test_relevelling()
 	test_levelling_accuracy()
 	test_brake_only_at_rest()
+	test_full_load_bypass()
 
 	print("\n=== RESULT: %s ===" % ("ALL TESTS PASSED" if failures == 0
 			else "%d FAILED" % failures))
@@ -747,3 +748,35 @@ func test_brake_only_at_rest() -> void:
 	check("an emergency stop still drops it immediately",
 			not LiftIo.get_bit(regs_out[LiftIo.OUT_DRIVE_CMD], LiftIo.DRV_BRAKE),
 			"(speed was %.0f mm/s)" % plant.speed_mms)
+
+
+func test_full_load_bypass() -> void:
+	print("\n18) Full-load bypass: a full car does not stop for landing calls")
+	reset(0)
+
+	# Someone is waiting at floor 2, and the car going up past them is full.
+	plant.load_kg = LiftCfg.LOAD_FULL_KG
+	press_for("hall_up_2")
+	press_for("car_5")
+	var arrived := step_until(func(): return cur_floor() == 5 and status(LiftIo.ST_DOOR_OPEN), 45.0)
+	check("the full car ran straight through to floor 5", arrived,
+			"(floor=%d)" % cur_floor())
+	check("it did not stop at floor 2 on the way", plant.trip_count <= 1,
+			"(%d stops)" % plant.trip_count)
+	check("but the landing call is still registered and lit",
+			LiftIo.get_bit(regs_out[LiftIo.OUT_LAMP_UP], 2),
+			"(lamp=%d)" % regs_out[LiftIo.OUT_LAMP_UP])
+
+	# Once people get out it is that call's turn.
+	plant.load_kg = 80
+	var served := step_until(func(): return cur_floor() == 2 and status(LiftIo.ST_DOOR_OPEN), 45.0)
+	check("and it is served once the car empties", served, "(floor=%d)" % cur_floor())
+	check("the lamp cleared", not LiftIo.get_bit(regs_out[LiftIo.OUT_LAMP_UP], 2))
+
+	# A car call is never bypassed - the passenger is already inside.
+	reset(0)
+	plant.load_kg = LiftCfg.LOAD_FULL_KG
+	press_for("car_2")
+	var car_call := step_until(func(): return cur_floor() == 2 and status(LiftIo.ST_DOOR_OPEN), 45.0)
+	check("a car call is answered however full it is", car_call,
+			"(floor=%d, %d kg)" % [cur_floor(), plant.load_kg])

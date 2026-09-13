@@ -13,6 +13,7 @@ FUNCTION_BLOCK FB_Dispatcher
 VAR_INPUT
     iCurrentFloor : INT;
     eCurDir       : E_Direction;   // the current direction of service
+    xBypassHall   : BOOL;          // car is full: serve car calls only
 END_VAR
 VAR_IN_OUT
     stLatch : ST_CallSet;
@@ -101,6 +102,12 @@ IF stLatch.axCar[iFloor] THEN
     RETURN;
 END_IF
 
+(* A full car drives past landings. The calls stay registered and lit - someone
+   still wants to travel - this car just is not the one that can take them. *)
+IF xBypassHall THEN
+    RETURN;
+END_IF
+
 CASE eDir OF
     DIR_UP:
         IF stLatch.axUp[iFloor] THEN
@@ -128,6 +135,10 @@ VAR_INPUT
 END_VAR
 IF (iFloor < 0) OR (iFloor > C_TOP_FLOOR) THEN
     CallAtFloor := FALSE;
+ELSIF xBypassHall THEN
+    (* Full car: landing calls are invisible to the search, so the dispatcher
+       will not even pick one as a target. *)
+    CallAtFloor := stLatch.axCar[iFloor];
 ELSE
     CallAtFloor := stLatch.axUp[iFloor] OR stLatch.axDown[iFloor] OR stLatch.axCar[iFloor];
 END_IF

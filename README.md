@@ -144,6 +144,11 @@ godot --path godot -- --plc modbus --host 192.168.1.10 --port 502
 served in order, then the car reverses. After 30 s idle it returns to the
 parking floor.
 
+**Full-load bypass.** Past 80 % of rated load the car stops answering *landing*
+calls and runs only its own. The calls stay registered and lit — somebody still
+wants to travel, this car just has no room for them — and get served as soon as
+it empties. A car call is never bypassed: that passenger is already inside.
+
 **Motion:** the controller produces a VVVF drive reference. Rated speed
 1600 mm/s, stopping within ±8 mm.
 
@@ -241,7 +246,7 @@ button halo stays lit while it rings.
 
 **Special modes:** fire (all calls cleared, car sent to the evacuation floor,
 doors held open), inspection (car-top hold-to-run, 300 mm/s), overload (start
-inhibit), and:
+inhibit at 110 % of rated), and:
 
 **Battery rescue (ARD) on mains failure.** Lose the mains and the drive drops
 out where it stands. After the changeover (3 s: contactors drop, the battery
@@ -256,7 +261,7 @@ car sinks to the floor below, an empty one floats up to the floor above. The
 car shows `E` and the doors stay open until the mains return.
 
 **Link supervision:** Godot sends a heartbeat every scan. If it stops changing
-for 2 s the PLC treats the safety chain as open and refuses to move the car.
+for 2 s the PLC treats the safety chain as open and refuses to move the car, and full-load bypass.
 
 ---
 
@@ -404,7 +409,7 @@ detect it from its own inputs.
 
 ## Performance
 
-The scene runs at ~135 FPS at 1600×900. There is a built-in profiling mode:
+The scene runs at ~126 FPS at 1600×900. There is a built-in profiling mode:
 
 ```bash
 godot --path godot -- --profile 8
@@ -417,10 +422,14 @@ Measurement-driven improvements:
 
 | | Before | After |
 |---|---|---|
-| Draw calls | 2907 | 714 |
+| Draw calls | 2907 | 715 |
 | Triangles | 804 k | 519 k |
-| Script time (frame) | 1.21 ms | 0.52 ms |
-| Video memory | 480 MB | 425 MB |
+| Video memory | 480 MB | 428 MB |
+
+Script time went the other way — 0.52 ms then, 1.21 ms now — because the plant
+grew a mass model, rope elasticity and the levelling vanes, and the controller
+grew four more modes. That is the cost of the physics being real, and at 60 Hz
+it is 7 % of the frame budget.
 
 - **Mesh sharing:** meshes of identical size share a single resource. Critical
   for the hundreds of rope-arc segments and repeated details. Meshes that are
@@ -470,18 +479,18 @@ indices in `PLC_PRG.st` (32 bits).
 godot --headless --path godot --script res://tests/sim_test.gd
 ```
 
-17 scenarios: car call and levelling, collective control, emergency stop +
+18 scenarios: car call and levelling, collective control, emergency stop +
 reset, overload start inhibit, fire evacuation (including a regression for the
 doors staying open), light curtain, travel timeout and recovery from a fault,
 brake feedback, overspeed, gong duration + alarm bell, ride quality (jerk and
-acceleration limits verified by measurement), load compensation (pre-torque sign, and
-the rollback that appears when it is switched off), and the safety gear (the
-governor gripping, the car held on the rails, and that RESET will not clear it),
-the battery rescue on mains failure (which way it chooses, that it stops at the
-first floor rather than the call, and that it creeps), re-levelling, levelling
-accuracy over every run length including the awkward single-floor and
-ground-floor cases, and that the holding brake is never asked to stop a moving
-car.
+acceleration limits verified by measurement), load compensation (pre-torque
+sign, and the rollback that appears when it is switched off), the safety gear
+(the governor gripping, the car held on the rails, and that RESET will not clear
+it), the battery rescue on mains failure (which way it chooses, that it stops at
+the first floor rather than the call, and that it creeps), re-levelling,
+levelling accuracy over every run length including the awkward single-floor and
+ground-floor cases, that the holding brake is never asked to stop a moving car,
+and full-load bypass.
 
 ```bash
 godot --headless --path godot --script res://tests/modbus_test.gd
@@ -548,6 +557,20 @@ To be straight about it, this is the part of the project that is not verified:
   the first build.
 - Single-car system — group control (a shared dispatcher across several
   elevators) is not modelled.
+- Still absent on the control side, and all of it is real equipment:
+  firefighter Phase II (operating the car from inside after the recall),
+  independent / attendant service, terminal slowdown switches as a stage
+  separate from the final limits, and correcting accumulated encoder drift
+  against the door-zone vane — the controller detects the mismatch as a fault
+  but never trims the position.
+- The door is a position model with a velocity envelope, not a force model:
+  closing force and the reversal counter that pushes a repeatedly obstructed
+  door into nudging are not represented.
+- Rope stretch is modelled with real elasticity, but the other things that move
+  a parked car — thermal drift, bearing and guide friction, rope creep over
+  months — are not. On a 16 m rise the stretch alone is a few millimetres, so
+  re-levelling rarely fires by itself; the worn-brake injection is there to
+  exercise it.
 
 ---
 
