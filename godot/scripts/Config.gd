@@ -44,6 +44,13 @@ const FIRE_FLOOR         := 0
 const LOAD_FULL_KG       := 630
 const LOAD_OVER_KG       := 693
 
+# Masses. The counterweight balances the empty car plus HALF the rated load
+# (a 50 % balance factor, the usual choice). So the machine only ever has to
+# hold the difference, and that difference reverses sign as the car fills:
+# an empty car is lighter than the counterweight, a full one is heavier.
+const CAR_EMPTY_KG       := 1200      # empty car: cabin + sling + doors
+const CWT_KG             := 1515      # = CAR_EMPTY_KG + 0.5 * LOAD_FULL_KG
+
 # =============================================================================
 # SIMULATION ONLY (plant model)
 # =============================================================================
@@ -55,6 +62,10 @@ const DOOR_CLOSE_TIME    := 2.4
 const DOOR_NUDGE_SCALE   := 0.45      # speed factor while nudging
 const BTN_PULSE_S        := 0.25      # momentary button pulse width
 const ENC_NOISE_MM       := 0.0       # optional encoder noise
+const G_MMS2             := 9810.0    # gravity
+const ROT_INERTIA        := 1.10      # sheave + motor inertia, as a factor on
+                                      # the moving mass
+const T_TORQUE_RAMP      := 0.25      # time for the drive to build pre-torque
 
 # =============================================================================
 # 3D GEOMETRY  [metres]

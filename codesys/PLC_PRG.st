@@ -155,3 +155,4 @@ GVL_IO.g_awMbOut[10] := INT_TO_WORD(GVL_IO.g_stOut.eState);
 GVL_IO.g_awMbOut[11] := INT_TO_WORD(GVL_IO.g_stOut.eFault);
 GVL_IO.g_awMbOut[12] := INT_TO_WORD(GVL_IO.g_stOut.iHeartbeat);
 GVL_IO.g_awMbOut[13] := INT_TO_WORD(GVL_IO.g_stOut.iDoorTimerMs);
+GVL_IO.g_awMbOut[14] := INT_TO_WORD(GVL_IO.g_stOut.iPreTorquePmil);

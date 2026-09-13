@@ -80,7 +80,8 @@ FC16, then reads input registers 0–15 with FC04.
 | 11 | `FAULT` | fault code (below) |
 | 12 | `HEARTBEAT` | PLC liveness counter (increments every 100 ms) |
 | 13 | `DOOR_TIMER` | dwell time remaining [ms] |
-| 14–15 | — | reserved |
+| 14 | `PRETORQUE` | pre-torque reference, **signed**, per mille of the torque needed for a full rated-load imbalance (+ = hold the car up) |
+| 15 | — | reserved |
 
 ### `STATUS` (register 5) bits
 

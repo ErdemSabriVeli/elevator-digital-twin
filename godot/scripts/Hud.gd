@@ -202,6 +202,7 @@ func _build_control_panel() -> void:
 	_mk_switch(vb, "brake", "Brake stuck")
 	_mk_switch(vb, "overspeed", "Drive runaway (overspeed)")
 	_mk_switch(vb, "jam", "Car jammed")
+	_mk_switch(vb, "nocomp", "No load compensation (rollback)")
 
 	var hb4 := HBoxContainer.new()
 	vb.add_child(hb4)
@@ -369,6 +370,10 @@ func update_view(plant: LiftPlant, link: PlcLink,
 	lines.append("Brake      : %s     Drive: %s" % [
 			"HOLDING" if plant.brake_engaged else "RELEASED",
 			"ENABLE" if plant.c_drive_enable else "off"])
+	lines.append("Pre-torque : %+d %s   (imbalance %+d kg)" % [
+			plant.c_pretorque,
+			"permille" if not plant.sw_no_load_comp else "permille  IGNORED",
+			LiftCfg.CAR_EMPTY_KG + plant.load_kg - LiftCfg.CWT_KG])
 	lines.append("Trips      : %d      Distance: %.1f m" % [
 			plant.trip_count, plant.travel_distance_mm * 0.001])
 	_status.text = "\n".join(lines)
@@ -389,7 +394,7 @@ func update_view(plant: LiftPlant, link: PlcLink,
 			"LIMITS", "POS_MM", "SPEED", "DOOR_PMIL", "LOAD_KG", "HB"]
 	var names_out := ["DRIVE_CMD", "DOOR_CMD", "LAMP_UP", "LAMP_DN", "LAMP_CAR",
 			"STATUS", "CUR_FLR", "TGT_FLR", "DIR", "SPEED_SP", "STATE", "FAULT",
-			"HB", "DOOR_T"]
+			"HB", "DOOR_T", "PRETORQ"]
 
 	var t := "-- Godot > PLC (holding) --\n"
 	for i in range(names_in.size()):

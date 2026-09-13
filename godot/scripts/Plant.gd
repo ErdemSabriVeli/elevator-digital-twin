@@ -28,9 +28,12 @@ var sw_rope_slip := false         # encoder drift simulation
 var sw_brake_stuck := false       # brake mechanically stuck
 var sw_overspeed := false         # drive runaway -> overspeed
 var sw_car_jammed := false        # car jammed / ropes slipping completely
+var sw_no_load_comp := false      # drive ignores the pre-torque reference
 
 const BRAKE_RESPONSE_S := 0.15    # brake coil response time
 var _brake_t := 0.0
+var _torque_ramp := 0.0           # 0..1, how much pre-torque the drive has built
+var _a_loop := 0.0                # the speed loop's share of the acceleration
 
 # --- PLC commands (last received) -------------------------------------------
 var c_drive_enable := false
@@ -38,6 +41,7 @@ var c_run_up := false
 var c_run_down := false
 var c_brake := false
 var c_speed_sp := 0
+var c_pretorque := 0              # per mille of the rated-load torque
 var c_door_open := false
 var c_door_close := false
 var c_door_nudge := false
@@ -91,6 +95,7 @@ func apply_outputs(o: PackedInt32Array) -> void:
 	c_run_down = LiftIo.get_bit(d, LiftIo.DRV_DOWN)
 	c_brake = LiftIo.get_bit(d, LiftIo.DRV_BRAKE)
 	c_speed_sp = o[LiftIo.OUT_SPEED_SP]
+	c_pretorque = LiftIo.to_signed(o[LiftIo.OUT_PRETORQUE])
 
 	var dc := o[LiftIo.OUT_DOOR_CMD]
 	c_door_open = LiftIo.get_bit(dc, LiftIo.DOOR_OPEN_CMD)
@@ -154,12 +159,30 @@ func step(dt: float) -> void:
 	if absf(speed_mms) <= creep and absf(v_target) <= creep:
 		jerk = LiftCfg.JERK_MMS3 * 8.0
 
+	# --- load imbalance and the drive's answer to it -------------------------
+	# The machine is a friction sheave, not a screw: once the brake lifts, the
+	# only thing holding the car is motor torque. The counterweight cancels the
+	# empty car plus half the rated load, so what is left over pulls the car
+	# down when it is full and up when it is empty.
+	#
+	# The drive builds its pre-torque BEFORE the brake opens (it is enabled a
+	# start delay earlier), which is why a correctly compensated lift does not
+	# move at all at the moment of release.
+	_torque_ramp = move_toward(_torque_ramp, 1.0 if c_drive_enable else 0.0,
+			dt / LiftCfg.T_TORQUE_RAMP)
+	var a_bias := imbalance_accel_mms2()
+	var a_ff := 0.0
+	if not sw_no_load_comp:
+		a_ff = pretorque_accel_mms2(c_pretorque) * _torque_ramp
+
 	if not powered:
 		# BRAKE: a friction element. It pulls speed to zero and holds it there;
 		# it can NEVER drive the car backwards. That is why the jerk integrator
 		# is not used here (with it, acceleration overshoots zero and the car
-		# would reverse).
+		# would reverse). It also holds against the imbalance, so a_bias does
+		# not apply while the shoes are on.
 		accel_mms2 = 0.0
+		_a_loop = 0.0
 		speed_mms = move_toward(speed_mms, 0.0, LiftCfg.DECEL_MMS2 * 3.0 * dt)
 	else:
 		var v_err := v_target - speed_mms
@@ -174,7 +197,10 @@ func step(dt: float) -> void:
 			if absf(a_cmd) > absf(a_reach):
 				a_cmd = a_reach
 
-		accel_mms2 = move_toward(accel_mms2, a_cmd, jerk * dt)
+		# The speed loop only has to make up whatever the feed-forward missed —
+		# the residual is what the passenger feels as rollback.
+		_a_loop = move_toward(_a_loop, a_cmd, jerk * dt)
+		accel_mms2 = _a_loop + a_bias + a_ff
 		speed_mms += accel_mms2 * dt
 
 	# --- position integration ----------------------------------------------
@@ -297,6 +323,26 @@ func build_registers(heartbeat: int) -> PackedInt32Array:
 	r[LiftIo.IN_HEARTBEAT] = heartbeat & 0x7FFF
 
 	return r
+
+
+## Moving mass seen by the machine: both hanging masses plus the rotating
+## inertia of sheave and motor, referred to the rope.
+func moving_mass_kg() -> float:
+	return (LiftCfg.CAR_EMPTY_KG + load_kg + LiftCfg.CWT_KG) * LiftCfg.ROT_INERTIA
+
+
+## Acceleration the load imbalance produces with the brake off and no torque.
+## Negative = the car is heavier than the counterweight and sinks.
+func imbalance_accel_mms2() -> float:
+	var net := float(LiftCfg.CAR_EMPTY_KG + load_kg - LiftCfg.CWT_KG)
+	return -net * LiftCfg.G_MMS2 / moving_mass_kg()
+
+
+## Acceleration the drive produces for a given pre-torque reference. Full scale
+## (1000) is the torque that balances a full rated-load imbalance.
+func pretorque_accel_mms2(permille: int) -> float:
+	var kg := float(permille) * 0.001 * float(LiftCfg.LOAD_FULL_KG)
+	return kg * LiftCfg.G_MMS2 / moving_mass_kg()
 
 
 func _obstructed() -> bool:

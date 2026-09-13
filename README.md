@@ -163,6 +163,20 @@ The brake is modelled as a friction element: it pulls speed to zero and holds
 it there, and can never drive the car backwards. It responds to the command
 with a 150 ms delay.
 
+**Load compensation (pre-torque).** A gearless machine holds the car by
+friction on the sheave, so the moment the brake lifts the only thing opposing
+the load is motor torque. The counterweight is sized at the empty car plus half
+the rated load (a 50 % balance factor), which means the leftover imbalance
+*changes sign* as the car fills: 1200 kg empty car, 1515 kg counterweight, so a
+full car is 315 kg heavy and an empty one 315 kg light.
+
+The controller reads the load cell and sends the drive a pre-torque reference
+(register 14, signed per mille) before the brake opens, and it enables the
+drive a start delay ahead of the brake so the torque is actually there. Turn
+the compensation off in the fault-injection panel and the model does what an
+uncompensated lift does: **a full car sinks ~40 mm and an empty one is pulled
+up ~27 mm** at the instant of release, before the speed loop catches it.
+
 **Doors:** open → dwell (4 s on a car call, 3 s on a hall call) → close. The
 light curtain or the door-open button reopens them; overload holds them open.
 After 15 s "nudge" (slow forced closing) kicks in. The panels are driven with a
@@ -329,6 +343,7 @@ detect it from its own inputs.
 | Car jammed | Drive runs but position does not advance | 3 — Travel timeout |
 | Rope slip | Encoder drifts from the true position | 6 — Encoder mismatch |
 | Light curtain | Door permanently obstructed | (not a fault — the door reopens) |
+| No load compensation | Drive ignores the pre-torque reference | (not a fault — the car rolls back at the start) |
 
 ---
 
@@ -400,11 +415,12 @@ indices in `PLC_PRG.st` (32 bits).
 godot --headless --path godot --script res://tests/sim_test.gd
 ```
 
-11 scenarios: car call and levelling, collective control, emergency stop +
+12 scenarios: car call and levelling, collective control, emergency stop +
 reset, overload start inhibit, fire evacuation (including a regression for the
 doors staying open), light curtain, travel timeout and recovery from a fault,
-brake feedback, overspeed, gong duration + alarm bell, and ride quality (jerk
-and acceleration limits verified by measurement).
+brake feedback, overspeed, gong duration + alarm bell, ride quality (jerk and
+acceleration limits verified by measurement), and load compensation (pre-torque
+sign, and the rollback that appears when it is switched off).
 
 ```bash
 godot --headless --path godot --script res://tests/modbus_test.gd
@@ -471,7 +487,6 @@ To be straight about it, this is the part of the project that is not verified:
   the first build.
 - Single-car system — group control (a shared dispatcher across several
   elevators) is not modelled.
-- Car load affects the start inhibit but not motor torque or acceleration.
 
 ---
 

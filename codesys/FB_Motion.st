@@ -21,6 +21,7 @@ VAR_INPUT
     xInspection  : BOOL;
     xInspUp      : BOOL;
     xInspDown    : BOOL;
+    iLoadKg      : INT;       // load cell reading
 END_VAR
 VAR_OUTPUT
     xDriveEnable  : BOOL;
@@ -33,6 +34,8 @@ VAR_OUTPUT
     xAtTarget     : BOOL;
     xTimeout      : BOOL;
     diErrMM       : DINT;
+    iPreTorquePmil: INT;      // pre-torque reference, per mille of the
+                              // rated-load torque; + = hold the car UP
 END_VAR
 VAR
     diTargetMM : DINT;
@@ -40,8 +43,24 @@ VAR
     tonTravel  : TON;
     tonBrakeFb : TON;
     tonBrake   : TON;
+    tonTorque  : TON;
     xMoveReq   : BOOL;
+    diNet      : DINT;
 END_VAR
+
+// ---------------------------------------------------------------------------
+// Pre-torque (load compensation)
+// ---------------------------------------------------------------------------
+// A gearless machine holds the car purely by friction on the sheave, so at the
+// instant the brake lifts the only thing opposing the load imbalance is motor
+// torque. If the drive is not already producing it, the car rolls back - down
+// when it is heavy, up when it is light. Real controllers read the load cell
+// and feed the drive a torque reference BEFORE the brake opens.
+//
+// Scaled per mille of the torque needed for a full rated-load imbalance, so
+// the value stays in INT range and is independent of the machine rating.
+diNet := INT_TO_DINT(C_CAR_EMPTY_KG) + INT_TO_DINT(iLoadKg) - INT_TO_DINT(C_CWT_KG);
+iPreTorquePmil := DINT_TO_INT(diNet * 1000 / INT_TO_DINT(C_LOAD_FULL_KG));
 
 // ---------------------------------------------------------------------------
 // Inspection mode: no target, creep speed only while a button is held
@@ -52,15 +71,20 @@ IF xInspection THEN
     xTimeout  := FALSE;
 
     IF xEnable AND xInspUp AND NOT xInspDown AND NOT xTopLimit THEN
-        xDriveEnable := TRUE; xBrakeRelease := TRUE;
+        xDriveEnable := TRUE;
+        tonTorque(IN := TRUE, PT := C_T_START_DELAY);
+        xBrakeRelease := tonTorque.Q;
         xRunUp := TRUE;  xRunDown := FALSE;
         iSpeedSp := C_V_INSPECT_MMS;  eDir := DIR_UP;
     ELSIF xEnable AND xInspDown AND NOT xInspUp AND NOT xBotLimit THEN
-        xDriveEnable := TRUE; xBrakeRelease := TRUE;
+        xDriveEnable := TRUE;
+        tonTorque(IN := TRUE, PT := C_T_START_DELAY);
+        xBrakeRelease := tonTorque.Q;
         xRunUp := FALSE; xRunDown := TRUE;
         iSpeedSp := C_V_INSPECT_MMS;  eDir := DIR_DOWN;
     ELSE
         xDriveEnable := FALSE; xBrakeRelease := FALSE;
+        tonTorque(IN := FALSE);
         xRunUp := FALSE; xRunDown := FALSE;
         iSpeedSp := 0;  eDir := DIR_NONE;
     END_IF
@@ -80,6 +104,7 @@ IF (iTargetFloor < 0) OR (iTargetFloor > C_TOP_FLOOR) OR NOT xEnable THEN
     iSpeedSp      := 0;
     eDir          := DIR_NONE;
     xAtTarget     := FALSE;
+    tonTorque(IN := FALSE);
     (* The OUTPUT FLAG must be cleared along with the timer; otherwise a
        timeout that fired once sticks and the fault can never be reset. *)
     tonTravel(IN := FALSE);
@@ -101,6 +126,7 @@ IF diAbsErr <= C_LEVEL_TOL_MM THEN
     eDir          := DIR_NONE;
     xLeveling     := FALSE;
     tonTravel(IN := FALSE);
+    tonTorque(IN := FALSE);
 
     // release the drive after the brake-apply delay
     tonBrake(IN := TRUE, PT := C_T_BRAKE);
@@ -116,11 +142,13 @@ tonBrake(IN := FALSE);
 IF (diErrMM > 0) AND xTopLimit THEN
     xDriveEnable := FALSE; xRunUp := FALSE; xRunDown := FALSE;
     iSpeedSp := 0; xBrakeRelease := FALSE; eDir := DIR_NONE;
+    tonTorque(IN := FALSE);
     RETURN;
 END_IF
 IF (diErrMM < 0) AND xBotLimit THEN
     xDriveEnable := FALSE; xRunUp := FALSE; xRunDown := FALSE;
     iSpeedSp := 0; xBrakeRelease := FALSE; eDir := DIR_NONE;
+    tonTorque(IN := FALSE);
     RETURN;
 END_IF
 
@@ -141,8 +169,12 @@ ELSE
 END_IF
 
 // --- direction and drive ---------------------------------------------------
+// The drive is enabled first and the brake only opens once it has had time to
+// build torque against the load. Lift the shoes before the machine is holding
+// and the car drops away under its own imbalance.
 xDriveEnable  := TRUE;
-xBrakeRelease := TRUE;
+tonTorque(IN := TRUE, PT := C_T_START_DELAY);
+xBrakeRelease := tonTorque.Q;
 
 IF diErrMM > 0 THEN
     xRunUp := TRUE;  xRunDown := FALSE;  eDir := DIR_UP;

@@ -178,6 +178,8 @@ STRUCT
     xAlarm        : BOOL;   // alarm bell (car alarm button)
     xCabinLight   : BOOL;
     iDoorTimerMs  : INT;    // remaining dwell time [ms]
+    iPreTorquePmil: INT;    // pre-torque reference, per mille of rated-load
+                            // torque; + = hold the car UP
     iHeartbeat    : INT;
 END_STRUCT
 END_TYPE

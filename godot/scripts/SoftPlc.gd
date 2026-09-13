@@ -164,6 +164,7 @@ class Outputs extends RefCounted:
 	var alarm := false
 	var cabin_light := true
 	var door_timer_ms := 0
+	var pretorque_pmil := 0
 	var heartbeat := 0
 
 	func _init() -> void:
@@ -492,14 +493,29 @@ class Motion extends RefCounted:
 	var at_target := false
 	var timeout := false
 	var err_mm := 0
+	var pretorque_pmil := 0
 
 	var _t_travel := Ton.new()
 	var _t_brake := Ton.new()
+	var _t_torque := Ton.new()
 	var _t_brake_fb := Ton.new()
 
 	func scan(enable: bool, target_floor: int, pos_mm: int,
 			top_limit: bool, bot_limit: bool,
-			inspection: bool, insp_up: bool, insp_down: bool, dt: float) -> void:
+			inspection: bool, insp_up: bool, insp_down: bool,
+			load_kg: int, dt: float) -> void:
+
+		# --- pre-torque (load compensation) ---------------------------------
+		# A gearless machine holds the car purely by friction on the sheave, so
+		# at the instant the brake lifts the only thing opposing the load
+		# imbalance is motor torque. If the drive is not already producing it,
+		# the car rolls back - down when it is heavy, up when it is light. Real
+		# controllers read the load cell and feed the drive a torque reference
+		# BEFORE the brake opens.
+		#
+		# Scaled per mille of the torque needed for a full rated-load imbalance.
+		var net := LiftCfg.CAR_EMPTY_KG + load_kg - LiftCfg.CWT_KG
+		pretorque_pmil = int(net * 1000 / LiftCfg.LOAD_FULL_KG)
 
 		# --- inspection mode ------------------------------------------------
 		if inspection:
@@ -507,15 +523,20 @@ class Motion extends RefCounted:
 			_t_travel.reset()
 			timeout = false
 			if enable and insp_up and not insp_down and not top_limit:
-				drive_enable = true; brake_release = true
+				drive_enable = true
+				_t_torque.update(true, LiftCfg.T_START_DELAY, dt)
+				brake_release = _t_torque.q
 				run_up = true; run_down = false
 				speed_sp = LiftCfg.V_INSPECT_MMS; dir = LiftIo.DIR_UP
 			elif enable and insp_down and not insp_up and not bot_limit:
-				drive_enable = true; brake_release = true
+				drive_enable = true
+				_t_torque.update(true, LiftCfg.T_START_DELAY, dt)
+				brake_release = _t_torque.q
 				run_up = false; run_down = true
 				speed_sp = LiftCfg.V_INSPECT_MMS; dir = LiftIo.DIR_DOWN
 			else:
 				drive_enable = false; brake_release = false
+				_t_torque.reset()
 				run_up = false; run_down = false
 				speed_sp = 0; dir = LiftIo.DIR_NONE
 			leveling = true
@@ -531,6 +552,7 @@ class Motion extends RefCounted:
 			speed_sp = 0
 			dir = LiftIo.DIR_NONE
 			at_target = false
+			_t_torque.reset()
 			# The OUTPUT FLAG has to be cleared along with the timer; otherwise a
 			# timeout that fired once sticks and the fault can never be reset.
 			_t_travel.reset()
@@ -550,6 +572,7 @@ class Motion extends RefCounted:
 			dir = LiftIo.DIR_NONE
 			leveling = false
 			_t_travel.reset()
+			_t_torque.reset()
 			_t_brake.update(true, LiftCfg.T_BRAKE, dt)
 			brake_release = not _t_brake.q
 			drive_enable = not _t_brake.q
@@ -562,6 +585,7 @@ class Motion extends RefCounted:
 		if (err_mm > 0 and top_limit) or (err_mm < 0 and bot_limit):
 			drive_enable = false; run_up = false; run_down = false
 			speed_sp = 0; brake_release = false; dir = LiftIo.DIR_NONE
+			_t_torque.reset()
 			return
 
 		# --- speed profile ----------------------------------------------------
@@ -578,8 +602,12 @@ class Motion extends RefCounted:
 				/ (LiftCfg.DECEL_DIST_MM - LiftCfg.DOOR_ZONE_MM))
 			leveling = false
 
+		# The drive is enabled first and the brake only opens once it has had
+		# time to build torque against the load. Lift the shoes before the
+		# machine is holding and the car drops away under its own imbalance.
 		drive_enable = true
-		brake_release = true
+		_t_torque.update(true, LiftCfg.T_START_DELAY, dt)
+		brake_release = _t_torque.q
 		if err_mm > 0:
 			run_up = true; run_down = false; dir = LiftIo.DIR_UP
 		else:
@@ -915,7 +943,7 @@ class LiftCore extends RefCounted:
 		# No overload check here: the start inhibit lives in DOOR_CLOSING.
 		motion.scan(safety.run_allow and door.is_closed and inp.door_locked and homed,
 				target_flr, inp.pos_mm, inp.top_limit, inp.bot_limit,
-				inp.inspection, inp.insp_up, inp.insp_down, dt)
+				inp.inspection, inp.insp_up, inp.insp_down, inp.load_kg, dt)
 
 		# --- 8) outputs --------------------------------------------------------
 		out.drive_enable = motion.drive_enable
@@ -924,6 +952,7 @@ class LiftCore extends RefCounted:
 		out.brake_release = motion.brake_release
 		out.leveling = motion.leveling
 		out.speed_sp_mms = motion.speed_sp
+		out.pretorque_pmil = motion.pretorque_pmil
 
 		out.door_open = door.open_out
 		out.door_close = door.close_out
@@ -1063,5 +1092,6 @@ func scan(mb_in: PackedInt32Array, dt: float) -> PackedInt32Array:
 	mb_out[LiftIo.OUT_FAULT] = o.fault
 	mb_out[LiftIo.OUT_HEARTBEAT] = o.heartbeat
 	mb_out[LiftIo.OUT_DOOR_TIMER] = o.door_timer_ms
+	mb_out[LiftIo.OUT_PRETORQUE] = o.pretorque_pmil & 0xFFFF
 
 	return mb_out

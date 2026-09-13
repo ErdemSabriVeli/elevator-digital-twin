@@ -311,6 +311,7 @@ func _on_switch(name: String, v: bool) -> void:
 		"brake": plant.sw_brake_stuck = v
 		"overspeed": plant.sw_overspeed = v
 		"jam": plant.sw_car_jammed = v
+		"nocomp": plant.sw_no_load_comp = v
 
 
 # =============================================================================

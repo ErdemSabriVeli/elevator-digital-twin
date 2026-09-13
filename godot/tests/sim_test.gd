@@ -32,6 +32,7 @@ func _initialize() -> void:
 	test_overspeed()
 	test_gong_and_alarm()
 	test_ride_quality()
+	test_load_compensation()
 
 	print("\n=== RESULT: %s ===" % ("ALL TESTS PASSED" if failures == 0
 			else "%d FAILED" % failures))
@@ -378,3 +379,79 @@ func test_ride_quality() -> void:
 	check("levelling held",
 			absf(plant.pos_mm - 5 * LiftCfg.FLOOR_HEIGHT_MM) <= LiftCfg.LEVEL_TOL_MM,
 			"(error %.1f mm)" % (plant.pos_mm - 5 * LiftCfg.FLOOR_HEIGHT_MM))
+
+
+# =============================================================================
+## Measures how far the car moves the WRONG way in the first moments of a trip.
+## Returns the worst excursion in mm, signed the same way as the travel.
+func rollback_mm(start_floor: int, target: String, load: int,
+		compensate: bool, up: bool) -> float:
+	reset(start_floor)
+	plant.load_kg = load
+	plant.sw_no_load_comp = not compensate
+	var p0 := plant.pos_mm
+	press_for(target)
+	var worst := 0.0
+	var elapsed := 0.0
+	while elapsed < 3.0:
+		plant.apply_outputs(regs_out)
+		plant.step(DT)
+		hb = (hb + 1) % 32000
+		regs_out = plc.scan(plant.build_registers(hb), DT)
+		elapsed += DT
+		t += DT
+		var d := plant.pos_mm - p0
+		worst = minf(worst, d) if up else maxf(worst, d)
+		# stop once the car is clearly under way in the intended direction
+		if absf(plant.speed_mms) > 200.0:
+			break
+	return absf(worst)
+
+
+func test_load_compensation() -> void:
+	print("\n12) Load compensation: pre-torque against rollback")
+	reset(0)
+
+	# The counterweight cancels the empty car plus half the rated load, so the
+	# residual reverses sign as the car fills.
+	plant.load_kg = LiftCfg.LOAD_FULL_KG
+	step(0.1)
+	check("full car: pre-torque holds it UP",
+			LiftIo.to_signed(regs_out[LiftIo.OUT_PRETORQUE]) > 0,
+			"(%d permille)" % LiftIo.to_signed(regs_out[LiftIo.OUT_PRETORQUE]))
+	plant.load_kg = 0
+	step(0.1)
+	check("empty car: pre-torque holds it DOWN",
+			LiftIo.to_signed(regs_out[LiftIo.OUT_PRETORQUE]) < 0,
+			"(%d permille)" % LiftIo.to_signed(regs_out[LiftIo.OUT_PRETORQUE]))
+	plant.load_kg = LiftCfg.CWT_KG - LiftCfg.CAR_EMPTY_KG      # exactly balanced
+	step(0.1)
+	check("balanced car: no pre-torque",
+			LiftIo.to_signed(regs_out[LiftIo.OUT_PRETORQUE]) == 0,
+			"(%d kg, %d permille)"
+					% [plant.load_kg, LiftIo.to_signed(regs_out[LiftIo.OUT_PRETORQUE])])
+
+	# A full car going up is the worst case: the load pulls it down and the
+	# brake is what has been holding it.
+	var with_comp := rollback_mm(1, "car_4", LiftCfg.LOAD_FULL_KG, true, true)
+	var without := rollback_mm(1, "car_4", LiftCfg.LOAD_FULL_KG, false, true)
+	check("compensated start does not roll back", with_comp < 1.0,
+			"(%.2f mm)" % with_comp)
+	check("uncompensated full car sinks on brake release", without > 5.0,
+			"(%.1f mm)" % without)
+
+	# An empty car going down is the mirror image: it is lighter than the
+	# counterweight, so with no torque it gets pulled up.
+	var up_kick := rollback_mm(4, "car_1", 0, false, false)
+	check("uncompensated empty car lifts on brake release", up_kick > 5.0,
+			"(%.1f mm)" % up_kick)
+
+	# The whole point: the imbalance must not survive into the ride.
+	reset(0)
+	plant.load_kg = LiftCfg.LOAD_FULL_KG
+	press_for("car_5")
+	var arrived := step_until(func(): return cur_floor() == 5 and status(LiftIo.ST_DOOR_OPEN), 45.0)
+	var level_err := plant.pos_mm - 5 * LiftCfg.FLOOR_HEIGHT_MM
+	check("a full car still levels correctly",
+			arrived and absf(level_err) <= LiftCfg.LEVEL_TOL_MM,
+			"(error %.1f mm)" % level_err)

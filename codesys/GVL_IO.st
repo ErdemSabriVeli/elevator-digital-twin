@@ -80,6 +80,8 @@ END_VAR
      11  FAULT_CODE     E_Fault
      12  PLC_HB         PLC heartbeat
      13  DOOR_TIMER_MS  remaining door dwell time [ms]
-     14..15  reserved
+     14  PRETORQUE      pre-torque reference, signed per mille of the
+                        rated-load torque (+ holds the car UP)
+     15  reserved
     ============================================================================
 *)

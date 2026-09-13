@@ -47,4 +47,11 @@ VAR_GLOBAL CONSTANT
     C_LOAD_FULL_KG     : INT  := 630;
     C_LOAD_OVER_KG     : INT  := 693;    // 110% -> overload
 
+    // Masses. The counterweight balances the empty car plus HALF the rated
+    // load (a 50% balance factor, the usual choice), so the machine only ever
+    // holds the difference - and that difference reverses sign as the car
+    // fills. Used to compute the pre-torque reference.
+    C_CAR_EMPTY_KG     : INT  := 1200;   // empty car: cabin + sling + doors
+    C_CWT_KG           : INT  := 1515;   // = C_CAR_EMPTY_KG + 0.5 * C_LOAD_FULL_KG
+
 END_VAR

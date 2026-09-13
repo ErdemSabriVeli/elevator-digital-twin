@@ -65,6 +65,7 @@ const OUT_STATE       := 10
 const OUT_FAULT       := 11
 const OUT_HEARTBEAT   := 12
 const OUT_DOOR_TIMER  := 13
+const OUT_PRETORQUE   := 14    # signed, per mille of the rated-load torque
 
 # OUT_DRIVE_CMD bits
 const DRV_ENABLE      := 0
@@ -145,6 +146,12 @@ static func set_bit(val: int, bit: int, on: bool) -> int:
 	if on:
 		return val | (1 << bit)
 	return val & ~(1 << bit)
+
+## Modbus carries WORDs; a signed field comes back as two.s complement.
+static func to_signed(w: int) -> int:
+	w &= 0xFFFF
+	return w - 65536 if w >= 32768 else w
+
 
 static func floor_name(f: int) -> String:
 	if f == 0:

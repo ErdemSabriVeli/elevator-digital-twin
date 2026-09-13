@@ -406,7 +406,8 @@ fbMotion(
     xBotLimit    := stIn.xBotLimit,
     xInspection  := stIn.xInspection,
     xInspUp      := stIn.xInspUp,
-    xInspDown    := stIn.xInspDown
+    xInspDown    := stIn.xInspDown,
+    iLoadKg      := stIn.iLoadKg
 );
 
 // ===========================================================================
@@ -418,6 +419,7 @@ stOut.xRunDown      := fbMotion.xRunDown;
 stOut.xBrakeRelease := fbMotion.xBrakeRelease;
 stOut.xLeveling     := fbMotion.xLeveling;
 stOut.iSpeedSpMMS   := fbMotion.iSpeedSp;
+stOut.iPreTorquePmil := fbMotion.iPreTorquePmil;
 
 stOut.xDoorOpen     := fbDoor.xOpenOut;
 stOut.xDoorClose    := fbDoor.xCloseOut;
