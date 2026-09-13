@@ -49,6 +49,11 @@ const LIM_SAFETY      := 6
 const LIM_GOVERNOR    := 7
 const LIM_SAFETY_GEAR := 8     # wedges gripping the guide rails
 const LIM_MAINS_OK    := 9     # mains supply healthy
+# Levelling vanes on the car, read against the shaft plates. Separate from the
+# encoder on purpose: the encoder is on the motor and measures rope payout, so
+# it cannot see the car hanging lower on a stretched rope.
+const LIM_RELEVEL_UP  := 10    # car is BELOW floor level -> creep up
+const LIM_RELEVEL_DN  := 11    # car is ABOVE floor level -> creep down
 
 # =============================================================================
 # PLC -> Godot   (Input Registers)
@@ -96,6 +101,7 @@ const ST_ARROW_DOWN   := 10
 const ST_CABIN_LIGHT  := 11
 const ST_ALARM        := 12
 const ST_RESCUE       := 13    # running on the battery rescue drive
+const ST_RELEVEL      := 14    # re-levelling at the floor, doors open
 
 # =============================================================================
 # Enums  (DUT_Types.st)
@@ -108,7 +114,7 @@ enum State {
 	INIT = 0, HOMING = 1, IDLE = 2, DOOR_OPENING = 3, DOOR_OPEN = 4,
 	DOOR_CLOSING = 5, START = 6, TRAVEL = 7, DECEL = 8, LEVEL = 9,
 	ARRIVED = 10, FAULT = 11, FIRE = 12, INSPECTION = 13, PARK = 14,
-	RESCUE = 15
+	RESCUE = 15, RELEVEL = 16
 }
 
 enum DoorState { CLOSED = 0, OPENING = 1, OPEN = 2, CLOSING = 3, REOPEN = 4, FAULT = 5 }
@@ -123,7 +129,7 @@ const STATE_TEXT := {
 	0: "INIT", 1: "HOMING", 2: "IDLE", 3: "DOOR OPENING", 4: "DOOR OPEN",
 	5: "DOOR CLOSING", 6: "START", 7: "TRAVEL", 8: "DECEL",
 	9: "LEVELLING", 10: "ARRIVED", 11: "FAULT", 12: "FIRE",
-	13: "INSPECTION", 14: "PARK", 15: "RESCUE (ARD)"
+	13: "INSPECTION", 14: "PARK", 15: "RESCUE (ARD)", 16: "RE-LEVELLING"
 }
 
 const FAULT_TEXT := {

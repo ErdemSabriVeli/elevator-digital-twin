@@ -31,6 +31,7 @@ var sw_severe_runaway := false    # runaway the controller cannot catch in time
 var sw_car_jammed := false        # car jammed / ropes slipping completely
 var sw_no_load_comp := false      # drive ignores the pre-torque reference
 var sw_mains_fail := false        # mains supply lost
+var sw_brake_creep := false       # worn brake: a held car sinks slowly
 
 ## Safety gear: the wedges the governor pulls onto the guide rails once the car
 ## passes the mechanical trip speed. It is not a fault the panel can clear -
@@ -204,6 +205,11 @@ func step(dt: float) -> void:
 		accel_mms2 = 0.0
 		_a_loop = 0.0
 		speed_mms = move_toward(speed_mms, 0.0, LiftCfg.DECEL_MMS2 * 3.0 * dt)
+		# A worn brake does not quite hold. The car sinks the way the load
+		# pulls, slowly enough that nobody notices until the sill is out of
+		# line - which is what re-levelling then keeps quietly correcting.
+		if sw_brake_creep and not safety_gear_set:
+			speed_mms = signf(imbalance_accel_mms2()) * LiftCfg.BRAKE_CREEP_MMS
 	else:
 		var v_err := v_target - speed_mms
 		var a_cmd := 0.0
@@ -333,7 +339,7 @@ func build_registers(heartbeat: int) -> PackedInt32Array:
 	# --- floor (door zone) sensors -----------------------------------------
 	var zone := 0
 	for f in range(LiftCfg.FLOOR_COUNT):
-		if absf(pos_mm - f * LiftCfg.FLOOR_HEIGHT_MM) <= LiftCfg.DOOR_ZONE_MM:
+		if absf(car_pos_mm() - f * LiftCfg.FLOOR_HEIGHT_MM) <= LiftCfg.DOOR_ZONE_MM:
 			zone = LiftIo.set_bit(zone, f, true)
 	r[LiftIo.IN_FLOOR_ZONE] = zone
 
@@ -357,10 +363,21 @@ func build_registers(heartbeat: int) -> PackedInt32Array:
 	lim = LiftIo.set_bit(lim, LiftIo.LIM_GOVERNOR, sw_governor_ok)
 	lim = LiftIo.set_bit(lim, LiftIo.LIM_SAFETY_GEAR, safety_gear_set)
 	lim = LiftIo.set_bit(lim, LiftIo.LIM_MAINS_OK, not sw_mains_fail)
+	# Levelling vanes. These read the CAR, not the encoder, and only mean
+	# anything inside a door zone.
+	var off := floor_offset_mm()
+	var in_zone: bool = absf(off) <= float(LiftCfg.DOOR_ZONE_MM)
+	lim = LiftIo.set_bit(lim, LiftIo.LIM_RELEVEL_UP,
+			in_zone and off < -float(LiftCfg.RELEVEL_MM))
+	lim = LiftIo.set_bit(lim, LiftIo.LIM_RELEVEL_DN,
+			in_zone and off > float(LiftCfg.RELEVEL_MM))
 	r[LiftIo.IN_LIMITS] = lim
 
 	# --- analogue ----------------------------------------------------------
-	r[LiftIo.IN_POS_MM] = clampi(int(round(pos_mm)), 0, 65535)
+	# Signed: the car really can sit below the bottom floor, in the pit, and a
+	# controller that cannot see that drives itself into the buffer. A 16-bit
+	# signed millimetre count covers +/-32 m of travel.
+	r[LiftIo.IN_POS_MM] = clampi(int(round(pos_mm)), -32768, 32767) & 0xFFFF
 	r[LiftIo.IN_SPEED_MMS] = clampi(int(absf(speed_mms)), 0, 65535)
 	r[LiftIo.IN_DOOR_PMIL] = clampi(int(door_pos * 1000.0), 0, 1000)
 	r[LiftIo.IN_LOAD_KG] = clampi(load_kg, 0, 65535)
@@ -374,6 +391,35 @@ func build_registers(heartbeat: int) -> PackedInt32Array:
 func release_safety_gear() -> void:
 	safety_gear_set = false
 	sw_governor_ok = true
+
+
+## How far the suspension rope stretches under the hanging car [mm].
+##
+## delta = F * L / (A * E). The rope pays out from the sheave at the shaft head,
+## so the suspended length — and with it the stretch — grows as the car goes
+## down. For this building it comes to a couple of millimetres; on a tower it is
+## centimetres, which is why re-levelling exists at all.
+func rope_stretch_mm() -> float:
+	var f_n := float(LiftCfg.CAR_EMPTY_KG + load_kg) * LiftCfg.G_MMS2 * 0.001
+	var head_m: float = float(LiftCfg.TOP_FLOOR) * LiftCfg.M_FLOOR_H \
+			+ LiftCfg.M_HEADROOM - 1.15
+	var len_m: float = maxf(0.1, head_m - pos_mm * 0.001)
+	return f_n * len_m / (LiftCfg.ROPE_AREA_M2 * LiftCfg.ROPE_E_PA) * 1000.0
+
+
+## Where the CAR actually is. pos_mm is what the encoder on the motor reads,
+## which is rope payout — it cannot see the car hanging lower on a stretched
+## rope. Everything that senses the car itself (levelling vanes, door zone, the
+## 3D model) has to use this instead.
+func car_pos_mm() -> float:
+	return pos_mm - rope_stretch_mm()
+
+
+## How far the car sits from the nearest floor level [mm]. Negative = low.
+func floor_offset_mm() -> float:
+	var c := car_pos_mm()
+	var f: int = clampi(int(round(c / LiftCfg.FLOOR_HEIGHT_MM)), 0, LiftCfg.TOP_FLOOR)
+	return c - float(f * LiftCfg.FLOOR_HEIGHT_MM)
 
 
 ## Moving mass seen by the machine: both hanging masses plus the rotating
@@ -405,7 +451,7 @@ func _obstructed() -> bool:
 # Helpers (for the visual side)
 # =============================================================================
 func car_y() -> float:
-	return pos_mm * 0.001
+	return car_pos_mm() * 0.001
 
 func nearest_floor() -> int:
 	return clampi(int(round(pos_mm / LiftCfg.FLOOR_HEIGHT_MM)), 0, LiftCfg.TOP_FLOOR)

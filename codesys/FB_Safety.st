@@ -18,6 +18,7 @@ VAR_INPUT
     xTopLimit     : BOOL;
     xBotLimit     : BOOL;
     xDoorLocked   : BOOL;
+    xDoorZone     : BOOL;   // car is inside a door zone
     xMoving       : BOOL;
     xDoorTimeout  : BOOL;
     xTravelTimeout: BOOL;
@@ -66,8 +67,12 @@ IF eFault = FLT_NONE THEN
     ELSIF xTopLimit OR xBotLimit THEN
         eFault := FLT_LIMIT;
 
-    ELSIF xMoving AND NOT xDoorLocked THEN
-        eFault := FLT_LOCK_LOST;       // the lock opened while moving
+    (* Moving with the lock open is only tolerated inside the door zone, and
+       only because that is what the door-zone bypass circuit is certified
+       for - it is what lets the car re-level with the doors open. Outside
+       the zone it is the classic dangerous fault. *)
+    ELSIF xMoving AND NOT xDoorLocked AND NOT xDoorZone THEN
+        eFault := FLT_LOCK_LOST;
 
     ELSIF xTravelTimeout THEN
         eFault := FLT_TRAVEL_TIMEOUT;

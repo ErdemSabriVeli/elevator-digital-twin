@@ -18,12 +18,13 @@ const TOP_FLOOR          := 5
 const FLOOR_HEIGHT_MM    := 3200
 const DOOR_ZONE_MM       := 60
 const LEVEL_TOL_MM       := 8
+const RELEVEL_MM         := 10        # out by this much at a floor -> re-level
 const OVERTRAVEL_MM      := 400
 
 const V_RATED_MMS        := 1600
 const V_LEVEL_MMS        := 150
 const V_INSPECT_MMS      := 300
-const DECEL_DIST_MM      := 2000
+const DECEL_DIST_MM      := 2600
 
 const T_DOOR_DWELL       := 4.0       # s
 const T_DOOR_DWELL_HALL  := 3.0
@@ -42,6 +43,8 @@ const V_OVERSPEED_MMS    := 1840      # governor electrical trip (115 %)
 const V_GEAR_TRIP_MMS    := 2000      # governor mechanical trip -> safety gear
                                       # grips the rails (125 %)
 const V_ARD_MMS          := 200       # rescue speed on battery
+const V_ZERO_MMS         := 30        # drive zero-speed detection
+const V_CREEP_MMS        := 40        # final approach speed at the tolerance edge
 
 const PARK_FLOOR         := 0
 const FIRE_FLOOR         := 0
@@ -72,6 +75,12 @@ const ROT_INERTIA        := 1.10      # sheave + motor inertia, as a factor on
 const T_TORQUE_RAMP      := 0.25      # time for the drive to build pre-torque
 const A_GEAR_MMS2        := 5900.0    # progressive safety gear retardation
                                       # (~0.6 g, EN 81 allows 0.2-1.0 g)
+# Suspension rope elasticity. Stranded rope is softer than solid steel because
+# of the lay, hence ~100 GPa rather than 200. The area is the METALLIC area:
+# a 16 mm rope is about half steel by cross-section, so ~100 mm2 each.
+const ROPE_E_PA          := 1.0e11
+const ROPE_AREA_M2       := 5.02e-4   # 5 ropes x ~100.5 mm2
+const BRAKE_CREEP_MMS    := 6.0       # worn brake: how fast a held car sinks
 
 # =============================================================================
 # 3D GEOMETRY  [metres]

@@ -35,6 +35,9 @@ func _initialize() -> void:
 	test_load_compensation()
 	test_safety_gear()
 	test_mains_failure()
+	test_relevelling()
+	test_levelling_accuracy()
+	test_brake_only_at_rest()
 
 	print("\n=== RESULT: %s ===" % ("ALL TESTS PASSED" if failures == 0
 			else "%d FAILED" % failures))
@@ -584,3 +587,163 @@ func test_mains_failure() -> void:
 			break
 	check("it creeps on the battery", peak <= LiftCfg.V_ARD_MMS * 1.15,
 			"(peak %.0f mm/s, rescue speed %d)" % [peak, LiftCfg.V_ARD_MMS])
+
+
+func test_relevelling() -> void:
+	print("\n15) Re-levelling: the encoder cannot see the car sag")
+	reset(0)
+
+	# Rope stretch is real but small on a six-floor rise. Say so with a number
+	# rather than pretending otherwise.
+	plant.load_kg = 0
+	var s_empty := plant.rope_stretch_mm()
+	plant.load_kg = LiftCfg.LOAD_FULL_KG
+	var s_full := plant.rope_stretch_mm()
+	check("a full car hangs lower than an empty one", s_full > s_empty,
+			"(%.2f mm vs %.2f mm at the bottom of the shaft)" % [s_full, s_empty])
+	check("the encoder does not see it",
+			absf(plant.car_pos_mm() - plant.pos_mm) > 0.5,
+			"(encoder %.1f mm, car %.1f mm)" % [plant.pos_mm, plant.car_pos_mm()])
+
+	# Now a fault that really does move the car at the floor: a brake that no
+	# longer quite holds. Re-levelling is what masks it until it gets bad.
+	reset(2)
+	plant.load_kg = LiftCfg.LOAD_FULL_KG
+	press_for("car_3")
+	var arrived := step_until(func(): return cur_floor() == 3 and plant.door_pos > 0.95, 30.0)
+	check("at floor 3 with the doors open", arrived)
+
+	plant.sw_brake_creep = true
+	var sagged := step_until(func(): return state() == LiftIo.State.RELEVEL, 15.0)
+	check("the car sinking triggers a re-level", sagged,
+			"(offset %.1f mm, threshold %d)" % [plant.floor_offset_mm(), LiftCfg.RELEVEL_MM])
+	check("re-level status bit set", status(LiftIo.ST_RELEVEL))
+	check("and it does it with the doors OPEN", plant.door_pos > 0.9,
+			"(door=%.0f%%)" % (plant.door_pos * 100))
+	check("moving with the doors open is not a lock fault here",
+			fault() == LiftIo.Fault.NONE,
+			"(code=%d %s)" % [fault(), LiftIo.FAULT_TEXT[fault()]])
+
+	var corrected := step_until(func(): return state() != LiftIo.State.RELEVEL, 15.0)
+	check("it creeps back to level", corrected
+			and absf(plant.floor_offset_mm()) <= LiftCfg.RELEVEL_MM,
+			"(offset %.1f mm)" % plant.floor_offset_mm())
+
+	# Outside the door zone, moving with the lock open is still the dangerous
+	# fault it always was.
+	plant.sw_brake_creep = false
+	reset(0)
+	press_for("car_4")
+	var midflight := step_until(func(): return plant.pos_mm > 5000.0, 20.0)
+	plant.door_pos = 0.5                        # lock contact drops mid-travel
+	step(0.3)
+	check("a lock lost between floors is still a fault", midflight
+			and fault() == LiftIo.Fault.LOCK_LOST,
+			"(code=%d %s)" % [fault(), LiftIo.FAULT_TEXT[fault()]])
+
+
+func test_levelling_accuracy() -> void:
+	print("\n16) Levelling accuracy over every run length")
+
+	# Single-floor runs are the tight case and were the one length no scenario
+	# exercised: the car cannot reach rated speed AND stop from it in 3.2 m, so
+	# a profile that lets it try arrives long. Floor 0 is the other awkward one
+	# — the position register cannot go below it, so the error can never turn
+	# negative there and a controller that picks its direction from the sign of
+	# a zero error drives itself into the pit.
+	var runs := [[2, 3], [3, 2], [0, 1], [1, 0], [4, 5], [5, 4],
+			[0, 5], [5, 0], [1, 4], [4, 1], [0, 2], [2, 0]]
+	var worst := 0.0
+	var worst_run := ""
+	var bad := ""
+
+	for r in runs:
+		var from: int = r[0]
+		var to: int = r[1]
+		reset(from)
+		press_for("car_%d" % to)
+		var ok := step_until(func(): return cur_floor() == to and status(LiftIo.ST_DOOR_OPEN), 45.0)
+		var err: float = plant.pos_mm - float(to * LiftCfg.FLOOR_HEIGHT_MM)
+		if not ok:
+			bad = "%d->%d never arrived (floor=%d, pos=%.0f)" % [from, to, cur_floor(), plant.pos_mm]
+			break
+		if fault() != LiftIo.Fault.NONE:
+			bad = "%d->%d faulted: %s" % [from, to, LiftIo.FAULT_TEXT[fault()]]
+			break
+		if absf(err) > absf(worst):
+			worst = err
+			worst_run = "%d->%d" % [from, to]
+
+	check("every run arrives without a fault", bad == "", bad)
+	check("and lands inside the levelling tolerance",
+			bad == "" and absf(worst) <= LiftCfg.LEVEL_TOL_MM,
+			"(worst %+.1f mm on %s, tolerance %d)"
+					% [worst, worst_run, LiftCfg.LEVEL_TOL_MM])
+
+	# The car must not sail through the floor and crawl back either.
+	reset(2)
+	press_for("car_3")
+	var peak_past := 0.0
+	var elapsed := 0.0
+	while elapsed < 30.0:
+		plant.apply_outputs(regs_out)
+		plant.step(DT)
+		hb = (hb + 1) % 32000
+		regs_out = plc.scan(plant.build_registers(hb), DT)
+		elapsed += DT
+		peak_past = maxf(peak_past, plant.pos_mm - 3.0 * LiftCfg.FLOOR_HEIGHT_MM)
+		if status(LiftIo.ST_DOOR_OPEN):
+			break
+	check("a one-floor run does not overshoot the floor", peak_past < 20.0,
+			"(went %.1f mm past)" % peak_past)
+
+
+## Highest speed at which the controller asked for the brake during a normal
+## run. The brake is a HOLDING brake: the drive is supposed to bring the car to
+## a stand and the shoes only then go on. Setting it at speed makes the brake do
+## the stopping, which is both a harsh stop and wear it is not rated for.
+func brake_speed_on_run(from: int, to: int) -> float:
+	reset(from)
+	press_for("car_%d" % to)
+	var was_released := false
+	var worst := 0.0
+	var elapsed := 0.0
+	while elapsed < 45.0:
+		plant.apply_outputs(regs_out)
+		plant.step(DT)
+		hb = (hb + 1) % 32000
+		regs_out = plc.scan(plant.build_registers(hb), DT)
+		elapsed += DT
+		var released := LiftIo.get_bit(regs_out[LiftIo.OUT_DRIVE_CMD], LiftIo.DRV_BRAKE)
+		if was_released and not released:
+			worst = maxf(worst, absf(plant.speed_mms))
+		was_released = released
+		if status(LiftIo.ST_DOOR_OPEN):
+			break
+	return worst
+
+
+func test_brake_only_at_rest() -> void:
+	print("\n17) The brake is a holding brake, not a service brake")
+
+	var worst := 0.0
+	var worst_run := ""
+	for r in [[2, 3], [0, 5], [5, 0], [1, 0]]:
+		var v := brake_speed_on_run(r[0], r[1])
+		if v > worst:
+			worst = v
+			worst_run = "%d->%d" % [r[0], r[1]]
+	check("it never goes on while the car is still running",
+			worst <= float(LiftCfg.V_ZERO_MMS),
+			"(worst %.1f mm/s on %s, zero-speed threshold %d)"
+					% [worst, worst_run, LiftCfg.V_ZERO_MMS])
+
+	# An emergency stop is the exception, and has to be.
+	reset(0)
+	press_for("car_5")
+	step_until(func(): return plant.speed_mms > 800.0, 15.0)
+	plant.sw_estop = true
+	step(0.2)
+	check("an emergency stop still drops it immediately",
+			not LiftIo.get_bit(regs_out[LiftIo.OUT_DRIVE_CMD], LiftIo.DRV_BRAKE),
+			"(speed was %.0f mm/s)" % plant.speed_mms)

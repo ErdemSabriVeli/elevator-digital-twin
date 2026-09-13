@@ -84,6 +84,7 @@ fbSafety(
     xTopLimit      := stIn.xTopLimit,
     xBotLimit      := stIn.xBotLimit,
     xDoorLocked    := stIn.xDoorLocked,
+    xDoorZone      := stIn.axFloorZone[iCurFloor],
     xMoving        := stOut.xMoving,
     xDoorTimeout   := fbDoor.xFault,
     xTravelTimeout := fbMotion.xTimeout,
@@ -290,6 +291,22 @@ CASE eState OF
         IF fbDoor.eState = DS_CLOSED THEN
             eState := LS_IDLE;
             eDir   := fbDisp.eNewDir;
+        (* Passengers walking in stretch the ropes and the car settles below the
+           sill. Correct it before anyone trips on the step. *)
+        ELSIF stIn.xRelevelUp OR stIn.xRelevelDown THEN
+            eState := LS_RELEVEL;
+        END_IF
+
+    // -----------------------------------------------------------------------
+    // Re-levelling. Runs with the doors OPEN, which is only allowed because
+    // the car is inside the door zone - that is what the door-zone bypass
+    // circuit is for on a real installation.
+    LS_RELEVEL:
+        iTargetFlr   := -1;
+        eDir         := DIR_NONE;
+        xDoorReqOpen := TRUE;
+        IF NOT stIn.xRelevelUp AND NOT stIn.xRelevelDown THEN
+            eState := LS_DOOR_OPEN;
         END_IF
 
     // -----------------------------------------------------------------------
@@ -456,9 +473,9 @@ fbDoor(
 *)
 fbMotion(
     xEnable      := fbSafety.xRunAllow
-                    AND fbDoor.xIsClosed
-                    AND stIn.xDoorLocked
-                    AND xHomed,
+                    AND xHomed
+                    AND ( (fbDoor.xIsClosed AND stIn.xDoorLocked)
+                          OR (eState = LS_RELEVEL) ),
     iTargetFloor := iTargetFlr,
     diPosMM      := stIn.diPosMM,
     xTopLimit    := stIn.xTopLimit,
@@ -467,7 +484,11 @@ fbMotion(
     xInspUp      := stIn.xInspUp,
     xInspDown    := stIn.xInspDown,
     iLoadKg      := stIn.iLoadKg,
-    xRescue      := (eState = LS_RESCUE)
+    iActSpeedMMS := stIn.iActSpeedMMS,
+    xRescue      := (eState = LS_RESCUE),
+    xRelevel     := (eState = LS_RELEVEL),
+    xRelevelUp   := stIn.xRelevelUp,
+    xRelevelDown := stIn.xRelevelDown
 );
 
 // ===========================================================================
@@ -504,6 +525,7 @@ stOut.xOverloadLamp := stIn.xOverload;
 stOut.xFaultLamp    := fbSafety.xFault;
 stOut.xFireMode     := (eState = LS_FIRE);
 stOut.xRescue       := (eState = LS_RESCUE);
+stOut.xRelevel      := (eState = LS_RELEVEL);
 stOut.xInspMode     := (eState = LS_INSPECTION);
 stOut.xOutOfService := fbSafety.xFault OR (eState = LS_INSPECTION) OR (eState = LS_FIRE);
 stOut.xCabinLight   := NOT fbSafety.xFault OR (fbSafety.eFault <> FLT_SAFETY_CHAIN);

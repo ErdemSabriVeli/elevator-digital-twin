@@ -206,6 +206,7 @@ func _build_control_panel() -> void:
 	_mk_switch(vb, "nocomp", "No load compensation (rollback)")
 	_mk_switch(vb, "runaway", "Severe runaway (safety gear)")
 	_mk_switch(vb, "mains", "Mains failure (battery rescue)")
+	_mk_switch(vb, "creep", "Worn brake (car sinks at the floor)")
 
 	var hb4 := HBoxContainer.new()
 	vb.add_child(hb4)
@@ -384,6 +385,8 @@ func update_view(plant: LiftPlant, link: PlcLink,
 			plant.c_pretorque,
 			"permille" if not plant.sw_no_load_comp else "permille  IGNORED",
 			LiftCfg.CAR_EMPTY_KG + plant.load_kg - LiftCfg.CWT_KG])
+	lines.append("Sill       : %+.1f mm   (rope stretch %.1f mm)" % [
+			plant.floor_offset_mm(), plant.rope_stretch_mm()])
 	lines.append("Trips      : %d      Distance: %.1f m" % [
 			plant.trip_count, plant.travel_distance_mm * 0.001])
 	_status.text = "\n".join(lines)

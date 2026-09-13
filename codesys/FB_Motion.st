@@ -5,7 +5,7 @@
     Produces the drive (VVVF) reference:  direction + speed setpoint + brake.
     The profile:
         |error| >= C_DECEL_DIST_MM        -> rated speed
-        C_DOOR_ZONE_MM < |error| < decel  -> linear deceleration ramp
+        C_DOOR_ZONE_MM < |error| < decel  -> SQRT distance-to-go curve
         |error| <= C_DOOR_ZONE_MM         -> levelling (creep) speed
         |error| <= C_LEVEL_TOL_MM         -> stop, apply the brake
     Godot counterpart: SoftPlc.gd -> class Motion
@@ -22,7 +22,11 @@ VAR_INPUT
     xInspUp      : BOOL;
     xInspDown    : BOOL;
     iLoadKg      : INT;       // load cell reading
+    iActSpeedMMS : INT;       // measured car speed
     xRescue      : BOOL;      // battery rescue run: creep speed only
+    xRelevel     : BOOL;      // re-levelling at a floor, doors open
+    xRelevelUp   : BOOL;      // levelling vane: car is low
+    xRelevelDown : BOOL;      // levelling vane: car is high
 END_VAR
 VAR_OUTPUT
     xDriveEnable  : BOOL;
@@ -47,6 +51,11 @@ VAR
     tonTorque  : TON;
     xMoveReq   : BOOL;
     diNet      : DINT;
+    rFrac      : REAL;
+    rRun       : REAL;
+    iVPeak     : INT;
+    iLastTarget: INT := -1;
+    diRunDist  : DINT;
 END_VAR
 
 // ---------------------------------------------------------------------------
@@ -94,6 +103,40 @@ IF xInspection THEN
 END_IF
 
 // ---------------------------------------------------------------------------
+// Re-levelling: creep back to floor level with the doors still open
+// ---------------------------------------------------------------------------
+// This loop runs on the levelling VANES, not on the encoder. The encoder sits
+// on the motor and measures rope payout; it cannot see the car hanging lower
+// because the rope stretched under a load that walked in. Only a sensor on the
+// car reading a plate in the shaft can.
+IF xRelevel THEN
+    xAtTarget := FALSE;
+    tonTravel(IN := FALSE);
+    xTimeout  := FALSE;
+
+    IF xEnable AND xRelevelUp AND NOT xRelevelDown THEN
+        xDriveEnable := TRUE;
+        tonTorque(IN := TRUE, PT := C_T_START_DELAY);
+        xBrakeRelease := tonTorque.Q;
+        xRunUp := TRUE;  xRunDown := FALSE;
+        iSpeedSp := C_V_LEVEL_MMS;  eDir := DIR_UP;
+    ELSIF xEnable AND xRelevelDown AND NOT xRelevelUp THEN
+        xDriveEnable := TRUE;
+        tonTorque(IN := TRUE, PT := C_T_START_DELAY);
+        xBrakeRelease := tonTorque.Q;
+        xRunUp := FALSE; xRunDown := TRUE;
+        iSpeedSp := C_V_LEVEL_MMS;  eDir := DIR_DOWN;
+    ELSE
+        xDriveEnable := FALSE; xBrakeRelease := FALSE;
+        tonTorque(IN := FALSE);
+        xRunUp := FALSE; xRunDown := FALSE;
+        iSpeedSp := 0;  eDir := DIR_NONE;
+    END_IF
+    xLeveling := TRUE;
+    RETURN;
+END_IF
+
+// ---------------------------------------------------------------------------
 // Normal mode
 // ---------------------------------------------------------------------------
 IF (iTargetFloor < 0) OR (iTargetFloor > C_TOP_FLOOR) OR NOT xEnable THEN
@@ -117,22 +160,48 @@ diTargetMM := INT_TO_DINT(iTargetFloor) * C_FLOOR_HEIGHT_MM;
 diErrMM    := diTargetMM - diPosMM;
 diAbsErr   := ABS(diErrMM);
 
-// --- has the target been reached? ------------------------------------------
-IF diAbsErr <= C_LEVEL_TOL_MM THEN
-    xAtTarget     := TRUE;
-    xMoveReq      := FALSE;
-    xRunUp        := FALSE;
-    xRunDown      := FALSE;
-    iSpeedSp      := 0;
-    eDir          := DIR_NONE;
-    xLeveling     := FALSE;
-    tonTravel(IN := FALSE);
-    tonTorque(IN := FALSE);
+(* The run length is settled the moment a target is picked, so the profile can
+   be sized from it. Picking up a nearer floor mid-run re-sizes it, which is
+   what should happen. *)
+IF iTargetFloor <> iLastTarget THEN
+    iLastTarget := iTargetFloor;
+    diRunDist   := diAbsErr;
+END_IF
 
-    // release the drive after the brake-apply delay
-    tonBrake(IN := TRUE, PT := C_T_BRAKE);
-    xBrakeRelease := NOT tonBrake.Q;
-    xDriveEnable  := NOT tonBrake.Q;
+// --- has the target been reached? ------------------------------------------
+// Being inside the levelling window is not enough on its own: a car crossing
+// it at speed is not "arrived". Drop the drive there and the brake has to stop
+// the car, which puts it well past the floor. Real controllers wait for the
+// drive to report zero speed before they set the brake and call it done.
+IF diAbsErr <= C_LEVEL_TOL_MM THEN
+    (* Zero the reference and pick NO direction. At zero error the sign of the
+       error means nothing, and asking for a direction from it drives the car
+       off the floor - which is exactly what happens at the bottom, where the
+       position register floors at 0 and the error can no longer go negative. *)
+    xRunUp    := FALSE;
+    xRunDown  := FALSE;
+    iSpeedSp  := 0;
+    eDir      := DIR_NONE;
+    xLeveling := FALSE;
+    tonTravel(IN := FALSE);
+
+    IF ABS(iActSpeedMMS) <= C_V_ZERO_MMS THEN
+        xAtTarget := TRUE;
+        xMoveReq  := FALSE;
+        tonTorque(IN := FALSE);
+        // release the drive after the brake-apply delay
+        tonBrake(IN := TRUE, PT := C_T_BRAKE);
+        xBrakeRelease := NOT tonBrake.Q;
+        xDriveEnable  := NOT tonBrake.Q;
+    ELSE
+        (* Still rolling. Hold the machine up against a zero reference and let
+           it bring the car to a stand; the brake goes on after that, not
+           instead of it. *)
+        xAtTarget     := FALSE;
+        tonBrake(IN := FALSE);
+        xDriveEnable  := TRUE;
+        xBrakeRelease := TRUE;
+    END_IF
     RETURN;
 END_IF
 
@@ -155,18 +224,56 @@ END_IF
 
 // --- speed profile ---------------------------------------------------------
 IF diAbsErr <= C_DOOR_ZONE_MM THEN
-    iSpeedSp  := C_V_LEVEL_MMS;
+    (* The curve carries on inside the door zone rather than holding a constant
+       creep. Held at C_V_LEVEL right up to the tolerance edge the car cannot
+       stop inside the window - it needs about 10 mm to shed 150 mm/s and the
+       window is 8 - so it sails through, reverses, and hunts. *)
+    rFrac := DINT_TO_REAL(diAbsErr - C_LEVEL_TOL_MM)
+             / DINT_TO_REAL(C_DOOR_ZONE_MM - C_LEVEL_TOL_MM);
+    IF rFrac < 0.0 THEN
+        rFrac := 0.0;
+    END_IF
+    iSpeedSp := REAL_TO_INT(INT_TO_REAL(C_V_LEVEL_MMS) * SQRT(rFrac));
+    IF iSpeedSp < C_V_CREEP_MMS THEN
+        iSpeedSp := C_V_CREEP_MMS;
+    END_IF
     xLeveling := TRUE;
 ELSIF diAbsErr >= C_DECEL_DIST_MM THEN
     iSpeedSp  := C_V_RATED_MMS;
     xLeveling := FALSE;
 ELSE
-    // Linear ramp:  C_V_LEVEL at the door-zone edge, C_V_RATED at the decel distance
-    iSpeedSp := C_V_LEVEL_MMS
-              + DINT_TO_INT( ((diAbsErr - C_DOOR_ZONE_MM)
-                            * INT_TO_DINT(C_V_RATED_MMS - C_V_LEVEL_MMS))
-                            / (C_DECEL_DIST_MM - C_DOOR_ZONE_MM) );
+    (* Distance-to-go curve: C_V_LEVEL at the door-zone edge, C_V_RATED at the
+       decel distance. Square root, not linear, because that is the shape of
+       constant deceleration - v = SQRT(2*a*s). A linear ramp asks the car to
+       shed speed at a rate that keeps growing as it closes on the floor, which
+       the drive cannot follow, so it arrives long. *)
+    rFrac := DINT_TO_REAL(diAbsErr - C_DOOR_ZONE_MM)
+             / DINT_TO_REAL(C_DECEL_DIST_MM - C_DOOR_ZONE_MM);
+    IF rFrac > 1.0 THEN
+        rFrac := 1.0;
+    END_IF
+    iSpeedSp := REAL_TO_INT(INT_TO_REAL(C_V_RATED_MMS) * SQRT(rFrac));
+    IF iSpeedSp < C_V_LEVEL_MMS THEN
+        iSpeedSp := C_V_LEVEL_MMS;
+    END_IF
     xLeveling := FALSE;
+END_IF
+
+(* Short-run profile. A car that cannot reach rated speed AND still stop from
+   it must not try - it arrives long and has to crawl back. One decel distance
+   to speed up and one to slow down, so a run of twice the decel distance is
+   the shortest that still justifies rated speed; anything shorter gets a
+   proportionally lower peak. *)
+rRun := DINT_TO_REAL(diRunDist) / DINT_TO_REAL(2 * C_DECEL_DIST_MM);
+IF rRun > 1.0 THEN
+    rRun := 1.0;
+END_IF
+iVPeak := REAL_TO_INT(INT_TO_REAL(C_V_RATED_MMS) * SQRT(rRun));
+IF iVPeak < C_V_LEVEL_MMS THEN
+    iVPeak := C_V_LEVEL_MMS;
+END_IF
+IF iSpeedSp > iVPeak THEN
+    iSpeedSp := iVPeak;
 END_IF
 
 // The battery behind the rescue drive is small: it only ever moves the car at

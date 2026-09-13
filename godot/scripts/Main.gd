@@ -317,6 +317,7 @@ func _on_switch(name: String, v: bool) -> void:
 		"nocomp": plant.sw_no_load_comp = v
 		"runaway": plant.sw_severe_runaway = v
 		"mains": plant.sw_mains_fail = v
+		"creep": plant.sw_brake_creep = v
 
 
 # =============================================================================

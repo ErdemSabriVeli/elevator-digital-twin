@@ -115,6 +115,8 @@ class Inputs extends RefCounted:
 	var governor_ok := true
 	var safety_gear := false
 	var mains_ok := true
+	var relevel_up := false
+	var relevel_down := false
 
 	var estop := false
 	var overload := false
@@ -165,6 +167,7 @@ class Outputs extends RefCounted:
 	var gong := false
 	var alarm := false
 	var rescue := false
+	var relevel := false
 	var cabin_light := true
 	var door_timer_ms := 0
 	var pretorque_pmil := 0
@@ -501,12 +504,16 @@ class Motion extends RefCounted:
 	var _t_travel := Ton.new()
 	var _t_brake := Ton.new()
 	var _t_torque := Ton.new()
+	var _last_target := -1
+	var _run_dist := 0
 	var _t_brake_fb := Ton.new()
 
 	func scan(enable: bool, target_floor: int, pos_mm: int,
 			top_limit: bool, bot_limit: bool,
 			inspection: bool, insp_up: bool, insp_down: bool,
-			load_kg: int, rescue: bool, dt: float) -> void:
+			load_kg: int, act_speed_mms: int, rescue: bool,
+			relevel: bool, relevel_up: bool, relevel_down: bool,
+			dt: float) -> void:
 
 		# --- pre-torque (load compensation) ---------------------------------
 		# A gearless machine holds the car purely by friction on the sheave, so
@@ -545,6 +552,35 @@ class Motion extends RefCounted:
 			leveling = true
 			return
 
+		# --- re-levelling: creep back to floor level, doors still open -------
+		# This loop runs on the levelling VANES, not on the encoder. The encoder
+		# sits on the motor and measures rope payout; it cannot see the car
+		# hanging lower because the rope stretched under a load that walked in.
+		# Only a sensor on the car reading a plate in the shaft can.
+		if relevel:
+			at_target = false
+			_t_travel.reset()
+			timeout = false
+			if enable and relevel_up and not relevel_down:
+				drive_enable = true
+				_t_torque.update(true, LiftCfg.T_START_DELAY, dt)
+				brake_release = _t_torque.q
+				run_up = true; run_down = false
+				speed_sp = LiftCfg.V_LEVEL_MMS; dir = LiftIo.DIR_UP
+			elif enable and relevel_down and not relevel_up:
+				drive_enable = true
+				_t_torque.update(true, LiftCfg.T_START_DELAY, dt)
+				brake_release = _t_torque.q
+				run_up = false; run_down = true
+				speed_sp = LiftCfg.V_LEVEL_MMS; dir = LiftIo.DIR_DOWN
+			else:
+				drive_enable = false; brake_release = false
+				_t_torque.reset()
+				run_up = false; run_down = false
+				speed_sp = 0; dir = LiftIo.DIR_NONE
+			leveling = true
+			return
+
 		# --- no target / not permitted --------------------------------------
 		if target_floor < 0 or target_floor > LiftCfg.TOP_FLOOR or not enable:
 			drive_enable = false
@@ -566,19 +602,45 @@ class Motion extends RefCounted:
 		err_mm = target_mm - pos_mm
 		var abs_err: int = abs(err_mm)
 
+		# The run length is settled the moment a target is picked, so the profile
+		# can be sized from it. Picking up a nearer floor mid-run re-sizes it,
+		# which is what should happen.
+		if target_floor != _last_target:
+			_last_target = target_floor
+			_run_dist = abs_err
+
 		# --- target reached --------------------------------------------------
+		# Being inside the levelling window is not enough on its own: a car
+		# crossing it at speed is not "arrived". Drop the drive there and the
+		# brake has to stop the car, which puts it well past the floor. Real
+		# controllers wait for the drive to report zero speed first.
 		if abs_err <= LiftCfg.LEVEL_TOL_MM:
-			at_target = true
+			# Zero the reference and pick NO direction. At zero error the sign of
+			# the error means nothing, and asking for a direction from it drives
+			# the car off the floor - which is exactly what happens at the
+			# bottom, where the position register floors at 0 and the error can
+			# no longer go negative.
 			run_up = false
 			run_down = false
 			speed_sp = 0
 			dir = LiftIo.DIR_NONE
 			leveling = false
 			_t_travel.reset()
-			_t_torque.reset()
-			_t_brake.update(true, LiftCfg.T_BRAKE, dt)
-			brake_release = not _t_brake.q
-			drive_enable = not _t_brake.q
+
+			if absi(act_speed_mms) <= LiftCfg.V_ZERO_MMS:
+				at_target = true
+				_t_torque.reset()
+				_t_brake.update(true, LiftCfg.T_BRAKE, dt)
+				brake_release = not _t_brake.q
+				drive_enable = not _t_brake.q
+			else:
+				# Still rolling. Hold the machine up against a zero reference and
+				# let it bring the car to a stand; the brake goes on after that,
+				# not instead of it.
+				at_target = false
+				_t_brake.reset()
+				drive_enable = true
+				brake_release = true
 			return
 
 		at_target = false
@@ -593,17 +655,40 @@ class Motion extends RefCounted:
 
 		# --- speed profile ----------------------------------------------------
 		if abs_err <= LiftCfg.DOOR_ZONE_MM:
-			speed_sp = LiftCfg.V_LEVEL_MMS
+			# The curve carries on inside the door zone rather than holding a
+			# constant creep. Held at V_LEVEL right up to the tolerance edge the
+			# car cannot stop inside the window - it needs about 10 mm to shed
+			# 150 mm/s and the window is 8 - so it sails through and hunts.
+			var zf: float = maxf(0.0, float(abs_err - LiftCfg.LEVEL_TOL_MM)
+					/ float(LiftCfg.DOOR_ZONE_MM - LiftCfg.LEVEL_TOL_MM))
+			speed_sp = maxi(LiftCfg.V_CREEP_MMS,
+					int(float(LiftCfg.V_LEVEL_MMS) * sqrt(zf)))
 			leveling = true
 		elif abs_err >= LiftCfg.DECEL_DIST_MM:
 			speed_sp = LiftCfg.V_RATED_MMS
 			leveling = false
 		else:
-			speed_sp = LiftCfg.V_LEVEL_MMS + int(
-				(abs_err - LiftCfg.DOOR_ZONE_MM)
-				* (LiftCfg.V_RATED_MMS - LiftCfg.V_LEVEL_MMS)
-				/ (LiftCfg.DECEL_DIST_MM - LiftCfg.DOOR_ZONE_MM))
+			# Distance-to-go curve: V_LEVEL at the door-zone edge, V_RATED at the
+			# decel distance. Square root, not linear, because that is the shape
+			# of constant deceleration - v = sqrt(2*a*s). A linear ramp asks the
+			# car to shed speed at a rate that keeps growing as it closes on the
+			# floor, which the drive cannot follow, so it arrives long.
+			var frac: float = minf(1.0, float(abs_err - LiftCfg.DOOR_ZONE_MM)
+					/ float(LiftCfg.DECEL_DIST_MM - LiftCfg.DOOR_ZONE_MM))
+			speed_sp = maxi(LiftCfg.V_LEVEL_MMS,
+					int(float(LiftCfg.V_RATED_MMS) * sqrt(frac)))
 			leveling = false
+
+		# Short-run profile. A car that cannot reach rated speed AND still stop
+		# from it must not try - it arrives long and has to crawl back. One decel
+		# distance to speed up and one to slow down, so a run of twice the decel
+		# distance is the shortest that still justifies rated speed; anything
+		# shorter gets a proportionally lower peak.
+		var run_frac: float = minf(1.0,
+				float(_run_dist) / float(2 * LiftCfg.DECEL_DIST_MM))
+		var v_peak: int = maxi(LiftCfg.V_LEVEL_MMS,
+				int(float(LiftCfg.V_RATED_MMS) * sqrt(run_frac)))
+		speed_sp = mini(speed_sp, v_peak)
 
 		# The battery behind the rescue drive is small: it only ever moves the car
 		# at creep speed, and only as far as the next floor.
@@ -661,7 +746,7 @@ class Safety extends RefCounted:
 
 	func scan(safety_chain: bool, governor_ok: bool, safety_gear: bool, estop: bool,
 			drive_ready: bool, drive_fault: bool,
-			top_limit: bool, bot_limit: bool, door_locked: bool,
+			top_limit: bool, bot_limit: bool, door_locked: bool, door_zone: bool,
 			moving: bool, door_timeout: bool, travel_timeout: bool,
 			zone_mismatch: bool, overspeed: bool, brake_mismatch: bool,
 			reset: bool) -> void:
@@ -686,7 +771,11 @@ class Safety extends RefCounted:
 				fault = LiftIo.Fault.BRAKE
 			elif top_limit or bot_limit:
 				fault = LiftIo.Fault.LIMIT
-			elif moving and not door_locked:
+			# Moving with the lock open is only tolerated inside the door zone,
+			# and only because that is what the door-zone bypass circuit is
+			# certified for - it is what lets the car re-level with the doors
+			# open. Outside the zone it is the classic dangerous fault.
+			elif moving and not door_locked and not door_zone:
 				fault = LiftIo.Fault.LOCK_LOST
 			elif travel_timeout:
 				fault = LiftIo.Fault.TRAVEL_TIMEOUT
@@ -751,7 +840,8 @@ class LiftCore extends RefCounted:
 
 		safety.scan(inp.safety_chain, inp.governor_ok, inp.safety_gear, inp.estop,
 				inp.drive_ready, inp.drive_fault, inp.top_limit, inp.bot_limit,
-				inp.door_locked, out.moving, door.fault, motion.timeout,
+				inp.door_locked, _zone_floor >= 0,
+				out.moving, door.fault, motion.timeout,
 				_zone_mism, overspeed, brake_bad, inp.fault_reset)
 
 		# --- 2) position / floor tracking -------------------------------------
@@ -890,6 +980,20 @@ class LiftCore extends RefCounted:
 				if door.state == LiftIo.DoorState.CLOSED:
 					state = LiftIo.State.IDLE
 					dir = disp.new_dir
+				# Passengers walking in stretch the ropes and the car settles
+				# below the sill. Correct it before anyone trips on the step.
+				elif inp.relevel_up or inp.relevel_down:
+					state = LiftIo.State.RELEVEL
+
+			LiftIo.State.RELEVEL:
+				# Runs with the doors OPEN, which is only allowed because the car
+				# is inside the door zone - that is what the door-zone bypass
+				# circuit is for on a real installation.
+				target_flr = -1
+				dir = LiftIo.DIR_NONE
+				door_req_open = true
+				if not inp.relevel_up and not inp.relevel_down:
+					state = LiftIo.State.DOOR_OPEN
 
 			LiftIo.State.PARK:
 				door_req_close = true
@@ -997,10 +1101,16 @@ class LiftCore extends RefCounted:
 
 		# --- 7) motion ---------------------------------------------------------
 		# No overload check here: the start inhibit lives in DOOR_CLOSING.
-		motion.scan(safety.run_allow and door.is_closed and inp.door_locked and homed,
+		var relevelling := state == LiftIo.State.RELEVEL
+		# Re-levelling is the one case that may move with the doors open, and
+		# only because the car is inside the door zone.
+		var move_ok: bool = safety.run_allow and homed \
+				and ((door.is_closed and inp.door_locked) or relevelling)
+		motion.scan(move_ok,
 				target_flr, inp.pos_mm, inp.top_limit, inp.bot_limit,
 				inp.inspection, inp.insp_up, inp.insp_down, inp.load_kg,
-				state == LiftIo.State.RESCUE, dt)
+				inp.act_speed_mms, state == LiftIo.State.RESCUE,
+				relevelling, inp.relevel_up, inp.relevel_down, dt)
 
 		# --- 8) outputs --------------------------------------------------------
 		out.drive_enable = motion.drive_enable
@@ -1033,6 +1143,7 @@ class LiftCore extends RefCounted:
 		out.fault_lamp = safety.is_fault
 		out.fire_mode = state == LiftIo.State.FIRE
 		out.rescue = state == LiftIo.State.RESCUE
+		out.relevel = state == LiftIo.State.RELEVEL
 		out.insp_mode = state == LiftIo.State.INSPECTION
 		out.out_of_service = safety.is_fault or state == LiftIo.State.INSPECTION \
 				or state == LiftIo.State.FIRE
@@ -1090,8 +1201,10 @@ func scan(mb_in: PackedInt32Array, dt: float) -> PackedInt32Array:
 	_inp.governor_ok = LiftIo.get_bit(lim, LiftIo.LIM_GOVERNOR)
 	_inp.safety_gear = LiftIo.get_bit(lim, LiftIo.LIM_SAFETY_GEAR)
 	_inp.mains_ok = LiftIo.get_bit(lim, LiftIo.LIM_MAINS_OK)
+	_inp.relevel_up = LiftIo.get_bit(lim, LiftIo.LIM_RELEVEL_UP)
+	_inp.relevel_down = LiftIo.get_bit(lim, LiftIo.LIM_RELEVEL_DN)
 
-	_inp.pos_mm = mb_in[LiftIo.IN_POS_MM]
+	_inp.pos_mm = LiftIo.to_signed(mb_in[LiftIo.IN_POS_MM])
 	_inp.act_speed_mms = mb_in[LiftIo.IN_SPEED_MMS]
 	_inp.door_pos_pmil = mb_in[LiftIo.IN_DOOR_PMIL]
 	_inp.load_kg = mb_in[LiftIo.IN_LOAD_KG]
@@ -1143,6 +1256,7 @@ func scan(mb_in: PackedInt32Array, dt: float) -> PackedInt32Array:
 	w = LiftIo.set_bit(w, LiftIo.ST_CABIN_LIGHT, o.cabin_light)
 	w = LiftIo.set_bit(w, LiftIo.ST_ALARM, o.alarm)
 	w = LiftIo.set_bit(w, LiftIo.ST_RESCUE, o.rescue)
+	w = LiftIo.set_bit(w, LiftIo.ST_RELEVEL, o.relevel)
 	mb_out[LiftIo.OUT_STATUS] = w
 
 	mb_out[LiftIo.OUT_CUR_FLOOR] = o.current_floor

@@ -29,7 +29,7 @@ FC16, then reads input registers 0–15 with FC04.
 | 3 | `CMD` | command bits — see the table below |
 | 4 | `FLOOR_ZONE` | bit *n* = car is in the door zone of floor *n* (±60 mm) |
 | 5 | `LIMITS` | limit / lock bits — see the table below |
-| 6 | `POS_MM` | absolute encoder position [mm], 0–65535 |
+| 6 | `POS_MM` | absolute encoder position [mm], **signed** — the car really can sit below the bottom floor, in the pit, and a controller that cannot see that drives itself into the buffer |
 | 7 | `SPEED_MMS` | measured car speed (absolute value) [mm/s] |
 | 8 | `DOOR_PMIL` | door position 0–1000 (0 = fully closed) |
 | 9 | `LOAD_KG` | car load [kg] |
@@ -57,6 +57,9 @@ FC16, then reads input registers 0–15 with FC04.
 | 2 | Door fully-open limit | 6 | Safety chain healthy |
 | 3 | Door fully-closed limit | 7 | Overspeed governor healthy |
 | | | 8 | Safety gear set (wedges on the rails) |
+| | | 9 | Mains supply healthy |
+| | | 10 | Levelling vane: car is below the sill |
+| | | 11 | Levelling vane: car is above the sill |
 
 > Bits 6 and 7 are **1 when healthy**; bit 8 is **1 when tripped**. If the Godot
 > link drops, the PLC treats bit 6 as 0.
@@ -96,6 +99,7 @@ FC16, then reads input registers 0–15 with FC04.
 | 5 | Fire mode | 11 | Car lighting |
 | — | | 12 | Alarm bell |
 | — | | 13 | Battery rescue (ARD) running |
+| — | | 14 | Re-levelling at the floor |
 
 ---
 
@@ -111,6 +115,7 @@ FC16, then reads input registers 0–15 with FC04.
 | 5 | DOOR_CLOSING | 13 | INSPECTION |
 | 6 | START | 14 | PARK |
 | 7 | TRAVEL | 15 | RESCUE — battery run (ARD) |
+| | | 16 | RELEVEL — creeping back to the sill |
 
 ## Fault codes (`FAULT`)
 

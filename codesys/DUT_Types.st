@@ -31,7 +31,8 @@ TYPE E_LiftState :
     LS_FIRE         := 12,  // fire scenario
     LS_INSPECTION   := 13,  // inspection (car top control)
     LS_PARK         := 14,  // returning to the park floor
-    LS_RESCUE       := 15   // mains lost: battery run to the nearest floor
+    LS_RESCUE       := 15,  // mains lost: battery run to the nearest floor
+    LS_RELEVEL      := 16   // creeping back to floor level with doors open
 ) INT;
 END_TYPE
 
@@ -126,6 +127,11 @@ STRUCT
     xGovernorOk    : BOOL;   // the overspeed governor is healthy
     xSafetyGear    : BOOL;   // safety gear wedged on the guide rails
     xMainsOk       : BOOL;   // mains supply healthy
+    (* Levelling vanes on the car. Separate from the encoder on purpose: the
+       encoder is on the motor and measures rope payout, so it cannot see the
+       car hanging lower on a stretched rope. *)
+    xRelevelUp     : BOOL;   // car is BELOW floor level -> creep up
+    xRelevelDown   : BOOL;   // car is ABOVE floor level -> creep down
 
     // Mode selectors
     xEStop         : BOOL;
@@ -181,6 +187,7 @@ STRUCT
     xGong         : BOOL;
     xAlarm        : BOOL;   // alarm bell (car alarm button)
     xRescue       : BOOL;   // running on the battery rescue drive
+    xRelevel      : BOOL;   // re-levelling at the floor with the doors open
     xCabinLight   : BOOL;
     iDoorTimerMs  : INT;    // remaining dwell time [ms]
     iPreTorquePmil: INT;    // pre-torque reference, per mille of rated-load

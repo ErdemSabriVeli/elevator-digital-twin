@@ -16,6 +16,7 @@ VAR_GLOBAL CONSTANT
     C_FLOOR_HEIGHT_MM  : DINT := 3200;   // distance between floors
     C_DOOR_ZONE_MM     : DINT := 60;     // floor level +/- the door-zone band
     C_LEVEL_TOL_MM     : DINT := 8;      // "arrived at floor" tolerance
+    C_RELEVEL_MM       : DINT := 10;     // out by this much at a floor -> re-level
     C_OVERTRAVEL_MM    : DINT := 400;    // distance to the end limit switch
 
     // --- Drive profile ------------------------------------------------------
@@ -26,9 +27,16 @@ VAR_GLOBAL CONSTANT
     C_V_GEAR_TRIP_MMS  : INT  := 2000;   // governor mechanical trip -> the
                                          // safety gear grips the rails (125%)
     C_V_ARD_MMS        : INT  := 200;    // rescue speed on battery
-    C_DECEL_DIST_MM    : DINT := 2000;   // distance at which to start slowing
-                                         // (sized for the stopping distance of
-                                         //  the jerk-limited drive)
+    C_V_ZERO_MMS       : INT  := 30;     // drive zero-speed detection
+    C_V_CREEP_MMS      : INT  := 40;     // final approach speed at the edge of
+                                         // the levelling tolerance
+    C_DECEL_DIST_MM    : DINT := 2600;   // distance at which to start slowing.
+                                         // Sized for the stopping distance the
+                                         // jerk-limited drive actually delivers
+                                         // (~610 mm/s2), with margin: sized to
+                                         // its bare capability the car arrives
+                                         // long, because the loop needs jerk
+                                         // time to reverse the acceleration.
 
     // --- Times --------------------------------------------------------------
     C_T_DOOR_DWELL     : TIME := T#4S;    // door dwell on a car call

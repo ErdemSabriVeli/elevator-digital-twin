@@ -67,9 +67,14 @@ GVL_IO.g_stIn.xSafetyChain    := F_GetBit(wLim, 6);
 GVL_IO.g_stIn.xGovernorOk     := F_GetBit(wLim, 7);
 GVL_IO.g_stIn.xSafetyGear     := F_GetBit(wLim, 8);
 GVL_IO.g_stIn.xMainsOk        := F_GetBit(wLim, 9);
+GVL_IO.g_stIn.xRelevelUp      := F_GetBit(wLim, 10);
+GVL_IO.g_stIn.xRelevelDown    := F_GetBit(wLim, 11);
 
 // Analogue values
-GVL_IO.g_stIn.diPosMM      := WORD_TO_DINT(GVL_IO.g_awMbIn[6]);
+(* Signed: the car really can sit below the bottom floor, in the pit, and a
+   controller that cannot see that drives itself into the buffer. WORD_TO_INT
+   reinterprets the register as a signed millimetre count. *)
+GVL_IO.g_stIn.diPosMM      := INT_TO_DINT(WORD_TO_INT(GVL_IO.g_awMbIn[6]));
 GVL_IO.g_stIn.iActSpeedMMS := WORD_TO_INT(GVL_IO.g_awMbIn[7]);
 GVL_IO.g_stIn.iDoorPosPmil := WORD_TO_INT(GVL_IO.g_awMbIn[8]);
 GVL_IO.g_stIn.iLoadKg      := WORD_TO_INT(GVL_IO.g_awMbIn[9]);
@@ -148,6 +153,7 @@ wTmp := F_SetBit(wTmp, 10, GVL_IO.g_stOut.eDirection = DIR_DOWN);
 wTmp := F_SetBit(wTmp, 11, GVL_IO.g_stOut.xCabinLight);
 wTmp := F_SetBit(wTmp, 12, GVL_IO.g_stOut.xAlarm);
 wTmp := F_SetBit(wTmp, 13, GVL_IO.g_stOut.xRescue);
+wTmp := F_SetBit(wTmp, 14, GVL_IO.g_stOut.xRelevel);
 GVL_IO.g_awMbOut[5] := wTmp;
 
 GVL_IO.g_awMbOut[6]  := INT_TO_WORD(GVL_IO.g_stOut.iCurrentFloor);

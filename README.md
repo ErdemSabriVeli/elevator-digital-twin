@@ -145,8 +145,24 @@ served in order, then the car reverses. After 30 s idle it returns to the
 parking floor.
 
 **Motion:** the controller produces a VVVF drive reference. Rated speed
-1600 mm/s, deceleration ramp starting 2000 mm out, 150 mm/s creep inside the
-door zone, stopping within ±8 mm.
+1600 mm/s, stopping within ±8 mm.
+
+The approach is a **distance-to-go curve**, `v = V_RATED · √(s/2600 mm)`, and it
+carries on all the way in — through the door zone down to a 40 mm/s final creep.
+Square root rather than linear because that is the shape of constant
+deceleration; a linear ramp asks the car to shed speed at a rate that keeps
+growing as it closes on the floor, which the drive cannot follow, so it arrives
+long. Two things fall out of getting this right, and both were real bugs here:
+
+- **Short runs get a lower peak.** A car cannot reach 1600 mm/s *and* stop from
+  it inside one 3.2 m floor. The peak is sized from the run length the moment
+  the target is picked, so a single-floor run simply never asks for rated speed.
+  Without it the car went 314 mm past the floor and had to crawl back.
+- **Arrival needs zero speed, not just position.** Being inside the ±8 mm window
+  at 1.2 m/s is not arriving. The reference goes to zero, the drive brings the
+  car to a stand, and only then do the shoes go on — the brake is a *holding*
+  brake. It also picks no direction at zero error, which matters at the bottom
+  floor where the sign of the error cannot go negative.
 
 On the plant side the drive applies a **jerk-limited (S-curve)** profile:
 acceleration does not change instantly but at a bounded rate (1300 mm/s³). This
@@ -154,14 +170,30 @@ is why starts and stops feel smooth in a real elevator. Two engineering
 couplings follow from it, both called out in the code:
 
 - The deceleration distance (`C_DECEL_DIST_MM`) is sized against the drive's
-  jerk-limited stopping distance — at 1400 mm the car overshot the floor by
-  152 mm.
+  jerk-limited stopping distance, with margin. The drive delivers about
+  610 mm/s2 once the jerk limit has had time to reverse the acceleration;
+  size the curve to exactly that and there is nothing left for the reversal
+  itself, and the car arrives long.
 - The jerk limit is a **comfort** constraint; it is relaxed at creep speed,
   otherwise the car oscillates around floor level.
 
 The brake is modelled as a friction element: it pulls speed to zero and holds
 it there, and can never drive the car backwards. It responds to the command
 with a 150 ms delay.
+
+**Re-levelling.** The encoder is on the motor, so it measures rope payout — it
+cannot see the car hanging lower because the rope stretched under a load that
+walked in. That is why a real lift has levelling vanes on the car reading plates
+in the shaft, and why they are wired separately from the encoder. Here the ropes
+are modelled with their real elasticity (5 x 100 mm2 of metallic area, ~100 GPa
+for stranded rope), which on this 16 m rise comes to a few millimetres — small,
+and said plainly rather than exaggerated; it is tower blocks where this becomes
+centimetres.
+
+When the car ends up more than 10 mm off the sill it creeps back **with the
+doors open**, which is only permitted because it is inside the door zone. That
+is also why the door-lock supervision is zone-aware: moving with the lock open
+is the classic dangerous fault everywhere except there.
 
 **Load compensation (pre-torque).** A gearless machine holds the car by
 friction on the sheave, so the moment the brake lifts the only thing opposing
@@ -366,6 +398,7 @@ detect it from its own inputs.
 | Light curtain | Door permanently obstructed | (not a fault — the door reopens) |
 | No load compensation | Drive ignores the pre-torque reference | (not a fault — the car rolls back at the start) |
 | Mains failure | Supply lost, then the battery changeover | (not a fault — the ARD runs the car to the nearest floor) |
+| Worn brake | The held car sinks slowly at the floor | (not a fault — the lift re-levels, which is how this hides until it gets bad) |
 
 ---
 
@@ -437,15 +470,18 @@ indices in `PLC_PRG.st` (32 bits).
 godot --headless --path godot --script res://tests/sim_test.gd
 ```
 
-14 scenarios: car call and levelling, collective control, emergency stop +
+17 scenarios: car call and levelling, collective control, emergency stop +
 reset, overload start inhibit, fire evacuation (including a regression for the
 doors staying open), light curtain, travel timeout and recovery from a fault,
 brake feedback, overspeed, gong duration + alarm bell, ride quality (jerk and
 acceleration limits verified by measurement), load compensation (pre-torque sign, and
 the rollback that appears when it is switched off), and the safety gear (the
 governor gripping, the car held on the rails, and that RESET will not clear it),
-and the battery rescue on mains failure (which way it chooses, that it stops at
-the first floor rather than the call, and that it creeps).
+the battery rescue on mains failure (which way it chooses, that it stops at the
+first floor rather than the call, and that it creeps), re-levelling, levelling
+accuracy over every run length including the awkward single-floor and
+ground-floor cases, and that the holding brake is never asked to stop a moving
+car.
 
 ```bash
 godot --headless --path godot --script res://tests/modbus_test.gd
