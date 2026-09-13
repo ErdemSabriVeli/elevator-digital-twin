@@ -11,6 +11,7 @@ signal connect_requested(host: String, port: int)
 signal load_changed(kg: int)
 signal cam_requested(mode: int)
 signal lobby_floor_changed(f: int)
+signal gear_release_requested
 
 const FONT_S := 12
 const FONT_M := 14
@@ -203,11 +204,17 @@ func _build_control_panel() -> void:
 	_mk_switch(vb, "overspeed", "Drive runaway (overspeed)")
 	_mk_switch(vb, "jam", "Car jammed")
 	_mk_switch(vb, "nocomp", "No load compensation (rollback)")
+	_mk_switch(vb, "runaway", "Severe runaway (safety gear)")
 
 	var hb4 := HBoxContainer.new()
 	vb.add_child(hb4)
 	_mk_button(hb4, "Passenger passed (pulse)", _emit_btn.bind("obstruct"), 128)
 	_mk_button(hb4, "FAULT RESET", _emit_btn.bind("reset"), 118)
+
+	var hb4b := HBoxContainer.new()
+	vb.add_child(hb4b)
+	_mk_button(hb4b, "RELEASE SAFETY GEAR",
+			func(): gear_release_requested.emit(), 250)
 
 	var hb5 := HBoxContainer.new()
 	vb.add_child(hb5)
@@ -370,6 +377,8 @@ func update_view(plant: LiftPlant, link: PlcLink,
 	lines.append("Brake      : %s     Drive: %s" % [
 			"HOLDING" if plant.brake_engaged else "RELEASED",
 			"ENABLE" if plant.c_drive_enable else "off"])
+	if plant.safety_gear_set:
+		lines.append("SAFETY GEAR: SET - wedges gripping the rails")
 	lines.append("Pre-torque : %+d %s   (imbalance %+d kg)" % [
 			plant.c_pretorque,
 			"permille" if not plant.sw_no_load_comp else "permille  IGNORED",

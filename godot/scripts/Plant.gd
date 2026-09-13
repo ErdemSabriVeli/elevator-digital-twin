@@ -26,9 +26,16 @@ var sw_inspection := false
 var sw_obstruction := false       # light curtain permanently blocked
 var sw_rope_slip := false         # encoder drift simulation
 var sw_brake_stuck := false       # brake mechanically stuck
-var sw_overspeed := false         # drive runaway -> overspeed
+var sw_overspeed := false         # mild drive runaway -> electrical trip
+var sw_severe_runaway := false    # runaway the controller cannot catch in time
 var sw_car_jammed := false        # car jammed / ropes slipping completely
 var sw_no_load_comp := false      # drive ignores the pre-torque reference
+
+## Safety gear: the wedges the governor pulls onto the guide rails once the car
+## passes the mechanical trip speed. It is not a fault the panel can clear -
+## freeing the wedges is a hands-on job at the car, so it stays set until
+## release_safety_gear() is called.
+var safety_gear_set := false
 
 const BRAKE_RESPONSE_S := 0.15    # brake coil response time
 var _brake_t := 0.0
@@ -130,8 +137,10 @@ func step(dt: float) -> void:
 	# sw_overspeed: drive runaway — actual speed exceeds the reference and the
 	# governor must trip.
 	var v_ref := float(c_speed_sp)
-	if sw_overspeed:
-		v_ref *= 1.45
+	if sw_severe_runaway:
+		v_ref *= 1.45      # fast enough that the governor grips before the PLC reacts
+	elif sw_overspeed:
+		v_ref *= 1.20      # past the electrical trip, short of the mechanical one
 
 	if powered:
 		if c_run_up and not c_run_down:
@@ -202,6 +211,28 @@ func step(dt: float) -> void:
 		_a_loop = move_toward(_a_loop, a_cmd, jerk * dt)
 		accel_mms2 = _a_loop + a_bias + a_ff
 		speed_mms += accel_mms2 * dt
+
+	# --- overspeed governor and safety gear ---------------------------------
+	# Two stages, and they are separate devices. At C_V_OVERSPEED_MMS the
+	# governor's electrical contact opens and the controller is expected to stop
+	# the car itself. If it cannot — a drive fast enough that the controller is
+	# still confirming while the car accelerates — the governor grips its rope at
+	# C_V_GEAR_TRIP_MMS and that pulls the safety gear wedges onto the guide
+	# rails. The wedges only bite downwards, which is why they are the answer to
+	# a falling car and not to an overspeeding one going up.
+	if not safety_gear_set and speed_mms < -float(LiftCfg.V_GEAR_TRIP_MMS):
+		safety_gear_set = true
+		sw_governor_ok = false          # the governor contact goes with it
+
+	if safety_gear_set:
+		# Progressive gear: the wedges slip against the rails at a roughly
+		# constant retardation rather than stopping the car dead.
+		speed_mms = move_toward(speed_mms, 0.0, LiftCfg.A_GEAR_MMS2 * dt)
+		accel_mms2 = 0.0
+		_a_loop = 0.0
+		# Set wedges hold against downward motion; the car can still be lifted
+		# off them, which is how they are freed.
+		speed_mms = maxf(speed_mms, 0.0)
 
 	# --- position integration ----------------------------------------------
 	var slip := 1.0
@@ -313,6 +344,7 @@ func build_registers(heartbeat: int) -> PackedInt32Array:
 	lim = LiftIo.set_bit(lim, LiftIo.LIM_BRAKE_FB, not brake_engaged)
 	lim = LiftIo.set_bit(lim, LiftIo.LIM_SAFETY, sw_safety_chain and not sw_estop)
 	lim = LiftIo.set_bit(lim, LiftIo.LIM_GOVERNOR, sw_governor_ok)
+	lim = LiftIo.set_bit(lim, LiftIo.LIM_SAFETY_GEAR, safety_gear_set)
 	r[LiftIo.IN_LIMITS] = lim
 
 	# --- analogue ----------------------------------------------------------
@@ -323,6 +355,13 @@ func build_registers(heartbeat: int) -> PackedInt32Array:
 	r[LiftIo.IN_HEARTBEAT] = heartbeat & 0x7FFF
 
 	return r
+
+
+## Frees the safety gear wedges. On a real lift this is a hands-on job at the
+## car, not something the panel can do, so nothing in the control logic calls it.
+func release_safety_gear() -> void:
+	safety_gear_set = false
+	sw_governor_ok = true
 
 
 ## Moving mass seen by the machine: both hanging masses plus the rotating

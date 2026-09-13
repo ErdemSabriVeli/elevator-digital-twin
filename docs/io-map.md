@@ -56,9 +56,10 @@ FC16, then reads input registers 0–15 with FC04.
 | 1 | Bottom limit switch | 5 | Brake feedback (released) |
 | 2 | Door fully-open limit | 6 | Safety chain healthy |
 | 3 | Door fully-closed limit | 7 | Overspeed governor healthy |
+| | | 8 | Safety gear set (wedges on the rails) |
 
-> Bits 6 and 7 are **1 when healthy**. If the Godot link drops, the PLC treats
-> bit 6 as 0.
+> Bits 6 and 7 are **1 when healthy**; bit 8 is **1 when tripped**. If the Godot
+> link drops, the PLC treats bit 6 as 0.
 
 ---
 
@@ -124,7 +125,8 @@ FC16, then reads input registers 0–15 with FC04.
 | 7 | Door lock lost while moving | Reset |
 | 8 | Emergency stop | Release the button, reset |
 | 9 | Brake feedback disagrees with the command (1 s) | Free the brake, reset |
-| 10 | Overspeed — governor tripped (115 %, 0.3 s) | Check the drive, reset |
+| 10 | Overspeed — governor electrical contact (115 %, 0.3 s) | Check the drive, reset |
+| 11 | Safety gear set — the wedges are gripping the guide rails (governor mechanical trip at 125 %) | **Not resettable from the panel.** Free the wedges by hand at the car, then reset |
 
 Faults latch. A reset is only accepted once the cause is gone (see the reset
 condition in `FB_Safety.st`). When a fault occurs all pending calls are cleared;

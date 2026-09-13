@@ -33,6 +33,7 @@ func _initialize() -> void:
 	test_gong_and_alarm()
 	test_ride_quality()
 	test_load_compensation()
+	test_safety_gear()
 
 	print("\n=== RESULT: %s ===" % ("ALL TESTS PASSED" if failures == 0
 			else "%d FAILED" % failures))
@@ -455,3 +456,56 @@ func test_load_compensation() -> void:
 	check("a full car still levels correctly",
 			arrived and absf(level_err) <= LiftCfg.LEVEL_TOL_MM,
 			"(error %.1f mm)" % level_err)
+
+
+func test_safety_gear() -> void:
+	print("\n13) Safety gear: the governor grips when the controller cannot stop it")
+	reset(5)
+
+	press_for("car_0")
+	var moving := step_until(func(): return plant.speed_mms < -400.0, 10.0)
+	check("the car is on its way down", moving, "(speed=%.0f mm/s)" % plant.speed_mms)
+
+	# A runaway fast enough that the car passes the mechanical trip speed while
+	# the controller is still confirming the electrical one.
+	plant.sw_severe_runaway = true
+	var gripped := step_until(func(): return plant.safety_gear_set, 12.0)
+	check("the safety gear engaged", gripped)
+	check("it engaged past the governor trip speed",
+			gripped and LiftCfg.V_GEAR_TRIP_MMS > LiftCfg.V_OVERSPEED_MMS,
+			"(gear %d mm/s, electrical %d mm/s)"
+					% [LiftCfg.V_GEAR_TRIP_MMS, LiftCfg.V_OVERSPEED_MMS])
+
+	var stopped := step_until(func(): return absf(plant.speed_mms) < 1.0, 3.0)
+	check("the wedges brought the car to a stop", stopped,
+			"(speed=%.1f mm/s)" % plant.speed_mms)
+	step(0.3)
+	check("reported as a safety gear fault", fault() == LiftIo.Fault.SAFETY_GEAR,
+			"(code=%d %s)" % [fault(), LiftIo.FAULT_TEXT[fault()]])
+
+	# The wedges hold the car up; it cannot sink further even with the drive off.
+	var p_held := plant.pos_mm
+	step(2.0)
+	check("the car is held on the rails", plant.pos_mm >= p_held - 1.0,
+			"(drift %.2f mm)" % (plant.pos_mm - p_held))
+
+	# A set gear is not something the panel can clear.
+	plant.sw_severe_runaway = false
+	press_for("reset")
+	step(1.0)
+	check("RESET does not clear a set safety gear",
+			fault() == LiftIo.Fault.SAFETY_GEAR, "(code=%d)" % fault())
+	press_for("car_2")
+	step(3.0)
+	check("and the lift will not run", absf(plant.pos_mm - p_held) < 5.0,
+			"(moved %.1f mm)" % (plant.pos_mm - p_held))
+
+	# Freeing the wedges is a hands-on job at the car; after that it resets.
+	plant.release_safety_gear()
+	press_for("reset")
+	step(1.0)
+	check("clears once the wedges are freed by hand",
+			fault() == LiftIo.Fault.NONE, "(code=%d)" % fault())
+	press_for("car_2")
+	var ran := step_until(func(): return cur_floor() == 2 and status(LiftIo.ST_DOOR_OPEN), 45.0)
+	check("and the lift runs again", ran, "(floor=%d)" % cur_floor())

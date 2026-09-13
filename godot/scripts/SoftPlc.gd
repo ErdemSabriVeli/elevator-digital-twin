@@ -113,6 +113,7 @@ class Inputs extends RefCounted:
 	var brake_fb := false
 	var safety_chain := true
 	var governor_ok := true
+	var safety_gear := false
 
 	var estop := false
 	var overload := false
@@ -651,7 +652,7 @@ class Safety extends RefCounted:
 				LiftCfg.T_OVERSPEED, dt)
 		return _t_overspeed.q
 
-	func scan(safety_chain: bool, governor_ok: bool, estop: bool,
+	func scan(safety_chain: bool, governor_ok: bool, safety_gear: bool, estop: bool,
 			drive_ready: bool, drive_fault: bool,
 			top_limit: bool, bot_limit: bool, door_locked: bool,
 			moving: bool, door_timeout: bool, travel_timeout: bool,
@@ -661,7 +662,12 @@ class Safety extends RefCounted:
 		_reset_edge.update(reset)
 
 		if fault == LiftIo.Fault.NONE:
-			if estop:
+			# The safety gear outranks everything else it drags in with it: the
+			# governor contact opens too, so without this the more specific
+			# cause would be reported as a plain safety-chain fault.
+			if safety_gear:
+				fault = LiftIo.Fault.SAFETY_GEAR
+			elif estop:
 				fault = LiftIo.Fault.ESTOP
 			elif not safety_chain or not governor_ok:
 				fault = LiftIo.Fault.SAFETY_CHAIN
@@ -682,14 +688,18 @@ class Safety extends RefCounted:
 			elif zone_mismatch:
 				fault = LiftIo.Fault.ENCODER
 
+		# A reset is refused while the cause is still present. A set safety
+		# gear is not resettable from the panel at all - the wedges have to be
+		# freed by hand at the car before the lift can run again.
 		if _reset_edge.q:
-			if (not estop and safety_chain and governor_ok
+			if (not estop and not safety_gear and safety_chain and governor_ok
 					and drive_ready and not drive_fault
 					and not top_limit and not bot_limit):
 				fault = LiftIo.Fault.NONE
 
 		is_fault = fault != LiftIo.Fault.NONE
 		run_allow = (not is_fault and safety_chain and governor_ok
+				and not safety_gear
 				and drive_ready and not drive_fault and not estop)
 
 
@@ -731,7 +741,7 @@ class LiftCore extends RefCounted:
 		var overspeed := safety.overspeed_trip(inp.act_speed_mms, dt)
 		var brake_bad := motion.brake_mismatch(out.brake_release, inp.brake_fb, dt)
 
-		safety.scan(inp.safety_chain, inp.governor_ok, inp.estop,
+		safety.scan(inp.safety_chain, inp.governor_ok, inp.safety_gear, inp.estop,
 				inp.drive_ready, inp.drive_fault, inp.top_limit, inp.bot_limit,
 				inp.door_locked, out.moving, door.fault, motion.timeout,
 				_zone_mism, overspeed, brake_bad, inp.fault_reset)
@@ -1030,6 +1040,7 @@ func scan(mb_in: PackedInt32Array, dt: float) -> PackedInt32Array:
 	_inp.brake_fb = LiftIo.get_bit(lim, LiftIo.LIM_BRAKE_FB)
 	_inp.safety_chain = LiftIo.get_bit(lim, LiftIo.LIM_SAFETY)
 	_inp.governor_ok = LiftIo.get_bit(lim, LiftIo.LIM_GOVERNOR)
+	_inp.safety_gear = LiftIo.get_bit(lim, LiftIo.LIM_SAFETY_GEAR)
 
 	_inp.pos_mm = mb_in[LiftIo.IN_POS_MM]
 	_inp.act_speed_mms = mb_in[LiftIo.IN_SPEED_MMS]

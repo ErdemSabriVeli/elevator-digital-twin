@@ -73,6 +73,7 @@ xBrakeBad  := fbMotion.BrakeMismatch(stOut.xBrakeRelease, stIn.xBrakeFb);
 fbSafety(
     xSafetyChain   := stIn.xSafetyChain,
     xGovernorOk    := stIn.xGovernorOk,
+    xSafetyGear    := stIn.xSafetyGear,
     xEStop         := stIn.xEStop,
     xDriveReady    := stIn.xDriveReady,
     xDriveFault    := stIn.xDriveFault,

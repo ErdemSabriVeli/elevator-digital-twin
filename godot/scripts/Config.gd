@@ -37,7 +37,9 @@ const T_START_DELAY      := 0.2
 const T_ALARM            := 2.0       # how long the bell rings after a press
 const T_BRAKE_FB         := 1.0       # brake feedback supervision window
 const T_OVERSPEED        := 0.3       # overspeed confirmation time
-const V_OVERSPEED_MMS    := 1840      # governor trip speed (115 %)
+const V_OVERSPEED_MMS    := 1840      # governor electrical trip (115 %)
+const V_GEAR_TRIP_MMS    := 2000      # governor mechanical trip -> safety gear
+                                      # grips the rails (125 %)
 
 const PARK_FLOOR         := 0
 const FIRE_FLOOR         := 0
@@ -66,6 +68,8 @@ const G_MMS2             := 9810.0    # gravity
 const ROT_INERTIA        := 1.10      # sheave + motor inertia, as a factor on
                                       # the moving mass
 const T_TORQUE_RAMP      := 0.25      # time for the drive to build pre-torque
+const A_GEAR_MMS2        := 5900.0    # progressive safety gear retardation
+                                      # (~0.6 g, EN 81 allows 0.2-1.0 g)
 
 # =============================================================================
 # 3D GEOMETRY  [metres]

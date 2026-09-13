@@ -186,9 +186,17 @@ door operator does the same to protect the mechanism and avoid slamming.
 **Safety:** emergency stop, safety chain, terminal limit switches, loss of door
 lock, door / travel timeout, encoder–floor-sensor mismatch, plus:
 
-- **Overspeed (governor):** trips when actual speed exceeds 115 % of rated
-  (1840 mm/s) for 0.3 s. This is the logic-side counterpart of the mechanical
-  governor modelled in the shaft.
+- **Overspeed (governor), two stages.** These are two separate devices and the
+  model treats them that way. At 115 % of rated (1840 mm/s, held 0.3 s) the
+  governor's electrical contact opens and the controller is expected to stop
+  the car itself. If it cannot — a drive running away faster than the
+  controller can confirm and react — the governor grips its rope at 125 %
+  (2000 mm/s) and that pulls the **safety gear** wedges onto the guide rails.
+  The wedges only bite downwards, which is why they answer a falling car and
+  not one overspeeding upwards; they slip at about 0.6 g rather than stopping
+  the car dead. A set safety gear is fault 11 and **RESET will not clear it** —
+  on a real lift the wedges have to be freed by hand at the car, so here that
+  is a separate button rather than something the control logic can do.
 - **Brake feedback:** faults when the PLC's brake-release command and the field
   brake contact disagree for 1 s. In the plant the brake responds with a 150 ms
   delay, so the supervision tolerates a realistic lag.
@@ -339,7 +347,8 @@ detect it from its own inputs.
 | Safety chain BROKEN | Chain contact opens | 1 — Safety chain |
 | Drive fault | Drive-ready signal drops | 4 — Drive |
 | Brake stuck | No brake contact despite the release command | 9 — Brake feedback |
-| Drive runaway | Actual speed climbs to 145 % of the reference | 10 — Overspeed |
+| Drive runaway | Actual speed climbs to 120 % of the reference | 10 — Overspeed |
+| Severe runaway | 145 % — past the governor's mechanical trip before the controller can react | 11 — Safety gear set |
 | Car jammed | Drive runs but position does not advance | 3 — Travel timeout |
 | Rope slip | Encoder drifts from the true position | 6 — Encoder mismatch |
 | Light curtain | Door permanently obstructed | (not a fault — the door reopens) |
@@ -415,12 +424,13 @@ indices in `PLC_PRG.st` (32 bits).
 godot --headless --path godot --script res://tests/sim_test.gd
 ```
 
-12 scenarios: car call and levelling, collective control, emergency stop +
+13 scenarios: car call and levelling, collective control, emergency stop +
 reset, overload start inhibit, fire evacuation (including a regression for the
 doors staying open), light curtain, travel timeout and recovery from a fault,
 brake feedback, overspeed, gong duration + alarm bell, ride quality (jerk and
-acceleration limits verified by measurement), and load compensation (pre-torque
-sign, and the rollback that appears when it is switched off).
+acceleration limits verified by measurement), load compensation (pre-torque sign, and
+the rollback that appears when it is switched off), and the safety gear (the
+governor gripping, the car held on the rails, and that RESET will not clear it).
 
 ```bash
 godot --headless --path godot --script res://tests/modbus_test.gd

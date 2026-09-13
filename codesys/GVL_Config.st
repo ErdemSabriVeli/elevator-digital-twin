@@ -22,7 +22,9 @@ VAR_GLOBAL CONSTANT
     C_V_RATED_MMS      : INT  := 1600;   // rated speed
     C_V_LEVEL_MMS      : INT  := 150;    // levelling (creep) speed
     C_V_INSPECT_MMS    : INT  := 300;    // inspection speed
-    C_V_OVERSPEED_MMS  : INT  := 1840;   // governor trip speed (115%)
+    C_V_OVERSPEED_MMS  : INT  := 1840;   // governor electrical trip (115%)
+    C_V_GEAR_TRIP_MMS  : INT  := 2000;   // governor mechanical trip -> the
+                                         // safety gear grips the rails (125%)
     C_DECEL_DIST_MM    : DINT := 2000;   // distance at which to start slowing
                                          // (sized for the stopping distance of
                                          //  the jerk-limited drive)

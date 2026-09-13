@@ -47,6 +47,7 @@ const LIM_DOOR_LOCK   := 4
 const LIM_BRAKE_FB    := 5
 const LIM_SAFETY      := 6
 const LIM_GOVERNOR    := 7
+const LIM_SAFETY_GEAR := 8     # wedges gripping the guide rails
 
 # =============================================================================
 # PLC -> Godot   (Input Registers)
@@ -112,7 +113,7 @@ enum DoorState { CLOSED = 0, OPENING = 1, OPEN = 2, CLOSING = 3, REOPEN = 4, FAU
 enum Fault {
 	NONE = 0, SAFETY_CHAIN = 1, DOOR_TIMEOUT = 2, TRAVEL_TIMEOUT = 3,
 	DRIVE = 4, LIMIT = 5, ENCODER = 6, LOCK_LOST = 7, ESTOP = 8,
-	BRAKE = 9, OVERSPEED = 10
+	BRAKE = 9, OVERSPEED = 10, SAFETY_GEAR = 11
 }
 
 const STATE_TEXT := {
@@ -127,7 +128,8 @@ const FAULT_TEXT := {
 	3: "Travel timeout", 4: "Drive fault", 5: "Limit switch",
 	6: "Encoder / floor sensor mismatch", 7: "Door lock lost",
 	8: "Emergency stop", 9: "Brake feedback mismatch",
-	10: "OVERSPEED - governor tripped"
+	10: "OVERSPEED - governor tripped",
+	11: "SAFETY GEAR SET - manual release needed"
 }
 
 const DIR_TEXT := { 0: "-", 1: "UP", 2: "DOWN" }

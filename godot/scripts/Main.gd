@@ -74,6 +74,7 @@ func _ready() -> void:
 		link.set_mode(PlcLink.Mode.MODBUS)
 		link.mb.open(h, p, link.unit_id))
 	hud.load_changed.connect(func(kg): plant.load_kg = kg)
+	hud.gear_release_requested.connect(func(): plant.release_safety_gear())
 	hud.cam_requested.connect(func(m): cam.set_mode(m))
 	hud.lobby_floor_changed.connect(func(f):
 		cam.lobby_floor = f
@@ -312,6 +313,7 @@ func _on_switch(name: String, v: bool) -> void:
 		"overspeed": plant.sw_overspeed = v
 		"jam": plant.sw_car_jammed = v
 		"nocomp": plant.sw_no_load_comp = v
+		"runaway": plant.sw_severe_runaway = v
 
 
 # =============================================================================

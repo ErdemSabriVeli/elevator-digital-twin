@@ -11,6 +11,7 @@ FUNCTION_BLOCK FB_Safety
 VAR_INPUT
     xSafetyChain  : BOOL;   // TRUE = intact
     xGovernorOk   : BOOL;
+    xSafetyGear   : BOOL;   // wedges gripping the guide rails
     xEStop        : BOOL;
     xDriveReady   : BOOL;
     xDriveFault   : BOOL;
@@ -41,7 +42,13 @@ xResetEdge(CLK := xReset);
 // --- Fault detection (in priority order) -----------------------------------
 IF eFault = FLT_NONE THEN
 
-    IF xEStop THEN
+    (* The safety gear outranks everything else it drags in with it: the
+       governor contact opens too, so without this the more specific cause
+       would be reported as a plain safety-chain fault. *)
+    IF xSafetyGear THEN
+        eFault := FLT_SAFETY_GEAR;
+
+    ELSIF xEStop THEN
         eFault := FLT_ESTOP;
 
     ELSIF NOT xSafetyChain OR NOT xGovernorOk THEN
@@ -76,8 +83,10 @@ END_IF
 
 // --- Reset ------------------------------------------------------------------
 IF xResetEdge.Q THEN
-    // a reset is refused while the cause is still present
-    IF NOT xEStop
+    (* A reset is refused while the cause is still present. A set safety gear
+       is not resettable from the panel at all - the wedges have to be freed
+       by hand at the car before the lift can run again. *)
+    IF NOT xEStop AND NOT xSafetyGear
        AND xSafetyChain AND xGovernorOk
        AND xDriveReady AND NOT xDriveFault
        AND NOT xTopLimit AND NOT xBotLimit THEN
@@ -88,7 +97,7 @@ END_IF
 xFault    := (eFault <> FLT_NONE);
 
 xRunAllow := NOT xFault
-             AND xSafetyChain AND xGovernorOk
+             AND xSafetyChain AND xGovernorOk AND NOT xSafetyGear
              AND xDriveReady AND NOT xDriveFault
              AND NOT xEStop;
 

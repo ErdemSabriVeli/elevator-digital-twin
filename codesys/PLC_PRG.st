@@ -65,6 +65,7 @@ GVL_IO.g_stIn.xDoorLocked     := F_GetBit(wLim, 4);
 GVL_IO.g_stIn.xBrakeFb        := F_GetBit(wLim, 5);
 GVL_IO.g_stIn.xSafetyChain    := F_GetBit(wLim, 6);
 GVL_IO.g_stIn.xGovernorOk     := F_GetBit(wLim, 7);
+GVL_IO.g_stIn.xSafetyGear     := F_GetBit(wLim, 8);
 
 // Analogue values
 GVL_IO.g_stIn.diPosMM      := WORD_TO_DINT(GVL_IO.g_awMbIn[6]);

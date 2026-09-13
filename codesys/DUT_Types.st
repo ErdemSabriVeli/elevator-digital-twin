@@ -77,7 +77,8 @@ TYPE E_Fault :
     FLT_LOCK_LOST     := 7,   // the door lock opened while moving
     FLT_ESTOP         := 8,   // emergency stop button
     FLT_BRAKE         := 9,   // brake feedback disagrees with the command
-    FLT_OVERSPEED     := 10   // the overspeed governor tripped
+    FLT_OVERSPEED     := 10,  // the overspeed governor tripped
+    FLT_SAFETY_GEAR   := 11   // the safety gear has gripped the rails
 ) INT;
 END_TYPE
 
@@ -122,6 +123,7 @@ STRUCT
     xBrakeFb       : BOOL;   // brake feedback
     xSafetyChain   : BOOL;   // TRUE = the chain is intact
     xGovernorOk    : BOOL;   // the overspeed governor is healthy
+    xSafetyGear    : BOOL;   // safety gear wedged on the guide rails
 
     // Mode selectors
     xEStop         : BOOL;
