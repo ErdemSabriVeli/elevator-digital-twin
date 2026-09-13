@@ -211,6 +211,7 @@ func _build_control_panel() -> void:
 	_mk_switch(vb, "nts", "Terminal slowdown cams dead")
 	_mk_switch(vb, "indep", "Independent service (attendant key)")
 	_mk_switch(vb, "ph2", "Firefighter Phase II (in-car key)")
+	_mk_switch(vb, "block", "Object in the door gap (unseen)")
 
 	var hb4 := HBoxContainer.new()
 	vb.add_child(hb4)

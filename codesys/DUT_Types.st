@@ -135,6 +135,7 @@ STRUCT
     xRelevelDown   : BOOL;   // car is ABOVE floor level -> creep down
     xNtsTop        : BOOL;   // terminal slowdown cam, top end
     xNtsBot        : BOOL;   // terminal slowdown cam, bottom end
+    xDoorStall     : BOOL;   // door operator stalled at its force limit
 
     // Mode selectors
     xEStop         : BOOL;

@@ -21,6 +21,7 @@ VAR_INPUT
     xOverload     : BOOL;
     xDoorZone     : BOOL;    // car is inside the unlocking zone
     xConstPress   : BOOL;    // firefighter mode: the buttons must be HELD
+    xStall        : BOOL;    // operator has hit its force limit closing
     tDwell        : TIME := T#4S;
 END_VAR
 VAR_OUTPUT
@@ -39,6 +40,7 @@ VAR
     tonMove   : TON;         // movement timeout
     tonNudge  : TON;         // standing at the door too long
     tRemain   : TIME;
+    iReversals: INT;         // re-openings in this closing attempt
 END_VAR
 
 // ---------------------------------------------------------------------------
@@ -55,6 +57,7 @@ IF NOT xEnable THEN
     tonMove(IN := FALSE);
     tonNudge(IN := FALSE);
     xNudge := FALSE;
+    iReversals := 0;
     iRemainMs := 0;
     RETURN;
 END_IF
@@ -67,6 +70,7 @@ CASE eState OF
         tonDwell(IN := FALSE);
         tonNudge(IN := FALSE);
         xNudge := FALSE;
+        iReversals := 0;
         (* Outside the unlocking zone the doors stay shut, however hard the
            button is leaned on. The coupler vane on the car door only engages
            the landing door rollers inside the zone - a stranded car cannot
@@ -104,7 +108,11 @@ CASE eState OF
         tonDwell(IN := NOT (xObstruction OR xOverload OR xOpenBtn OR xReqOpen),
                  PT := tDwell);
         tonNudge(IN := TRUE, PT := C_T_NUDGE);
-        xNudge := tonNudge.Q;
+        (* Nudging starts either way: stood open too long, or turned back too
+           many times. Something that keeps breaking the curtain is not going
+           to stop - a coat hanging in the gap, a child playing with it - and
+           the car cannot sit there for ever. *)
+        xNudge := tonNudge.Q OR (iReversals >= C_DOOR_REV_MAX);
 
         tRemain   := tDwell - tonDwell.ET;
         iRemainMs := TIME_TO_INT(tRemain);
@@ -149,10 +157,21 @@ CASE eState OF
                 xNudge := FALSE;
                 eState := DS_CLOSED;
             END_IF
+        (* The operator's force limit reverses the door even while nudging.
+           Nudging stops listening to the light curtain; it never stops
+           listening to something physically in the way. That is the difference
+           between a slow insistent door and a dangerous one. EN 81-20 5.3.6. *)
+        ELSIF xStall THEN
+            tonMove(IN := FALSE);
+            iReversals := iReversals + 1;
+            eState := DS_REOPEN;
         // Reasons to reopen (in nudge mode the light curtain is ignored,
         // but the open button and an overload always count)
         ELSIF xOpenBtn OR xReqOpen OR xOverload OR (xObstruction AND NOT xNudge) THEN
             tonMove(IN := FALSE);
+            IF xObstruction THEN
+                iReversals := iReversals + 1;
+            END_IF
             eState := DS_REOPEN;
         ELSIF xCloseLimit THEN
             tonMove(IN := FALSE);

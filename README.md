@@ -162,17 +162,30 @@ long. Two things fall out of getting this right, and both were real bugs here:
 - **Short runs get a lower peak.** A car cannot reach 1600 mm/s *and* stop from
   it inside one 3.2 m floor. The peak is sized from the run length the moment
   the target is picked, so a single-floor run simply never asks for rated speed.
-  Without it the car went 314 mm past the floor and had to crawl back.
+  Without it the car goes 290 mm past the floor and has to crawl back.
 - **Arrival needs zero speed, not just position.** Being inside the ±8 mm window
   at 1.2 m/s is not arriving. The reference goes to zero, the drive brings the
   car to a stand, and only then do the shoes go on — the brake is a *holding*
   brake. It also picks no direction at zero error, which matters at the bottom
   floor where the sign of the error cannot go negative.
 
-On the plant side the drive applies a **jerk-limited (S-curve)** profile:
-acceleration does not change instantly but at a bounded rate (1300 mm/s³). This
-is why starts and stops feel smooth in a real elevator. Two engineering
-couplings follow from it, both called out in the code:
+On the plant side the drive is two things, the way a real one is. A
+**jerk-limited (S-curve) reference**: acceleration does not change instantly but
+at a bounded rate (1300 mm/s³), which is why starts and stops feel smooth. And a
+**speed controller** that tracks that reference — PI, with the reference
+acceleration and running friction fed forward, and a torque limit of its own.
+
+The split matters. The comfort limits describe what the passenger is meant to
+feel; they are not how fast the drive may answer a load. An earlier version ran
+disturbance rejection through the comfort jerk limiter, and without pre-torque
+an empty car climbed more than a metre before the drive caught it — a figure a
+shorter test had been quietly hiding by stopping its measurement too early.
+
+Running resistance is modelled too (250 N: guide rollers, sheave and deflector
+bearings, rope bending), including stiction, so a car balanced to within a few
+kilos does not creep when the brake lifts.
+
+Two engineering couplings follow from the S-curve, both called out in the code:
 
 - The deceleration distance (`C_DECEL_DIST_MM`) is sized against the drive's
   jerk-limited stopping distance, with margin. The drive delivers about
@@ -202,10 +215,10 @@ which, so it stops rather than guessing.
 
 **Re-levelling.** The same split is why the levelling vanes exist as separate
 sensors: the encoder cannot see the car hanging lower because the rope stretched
-under a load that walked in. Here the ropes are modelled with their real elasticity (5 x 100 mm2 of metallic area, ~100 GPa
-for stranded rope), which on this 16 m rise comes to a few millimetres — small,
-and said plainly rather than exaggerated; it is tower blocks where this becomes
-centimetres.
+under a load that walked in. Here the ropes are modelled with their real
+elasticity (5 x 100 mm2 of metallic area, ~100 GPa for stranded rope), which on
+this 16 m rise comes to a few millimetres — small, and said plainly rather than
+exaggerated; it is tower blocks where this becomes centimetres.
 
 When the car ends up more than 10 mm off the sill it creeps back **with the
 doors open**, which is only permitted because it is inside the door zone. That
@@ -223,8 +236,10 @@ The controller reads the load cell and sends the drive a pre-torque reference
 (register 14, signed per mille) before the brake opens, and it enables the
 drive a start delay ahead of the brake so the torque is actually there. Turn
 the compensation off in the fault-injection panel and the model does what an
-uncompensated lift does: **a full car sinks ~40 mm and an empty one is pulled
-up ~27 mm** at the instant of release, before the speed loop catches it.
+uncompensated lift does: **a full car sinks about 12 mm and an empty one is
+pulled up about 18 mm** at the instant of release, before the speed controller
+has learnt the load. Centimetres, which is what a real lift without load
+weighing shows — the test bounds it on both sides for exactly that reason.
 
 **Doors:** they can only move inside the **unlocking zone**. The coupler vane on
 the car door engages the landing door rollers over a ±60 mm window and nowhere
@@ -234,7 +249,19 @@ That is modelled in the *plant*, not just checked by the controller: it is a
 mechanism, and a twin that only enforced it in the logic could not catch a
 controller that got it wrong.
 
-Open → dwell (4 s on a car call, 3 s on a hall call) → close. The
+Open → dwell (4 s on a car call, 3 s on a hall call) → close.
+
+The panels have mass (70 kg, car and landing panels moving together), and the
+operator a thrust limit of 135 N. EN 81-20 5.3.6 caps the kinetic energy at 10 J,
+and at 4 J while nudging — which is *why* nudging is slow. Measured: 1.52 J at
+0.208 m/s normally, 0.31 J when nudging.
+
+Three turn-backs on the light curtain start nudging straight away rather than
+waiting out the 15 s timer — something that keeps breaking the curtain (a coat in
+the gap, a child playing with it) is not going to stop. Nudging then ignores the
+curtain, but **never the force limit**: close onto something the curtain cannot
+see and the operator stalls on it and turns back. That is the difference between
+a slow insistent door and a dangerous one. The
 light curtain or the door-open button reopens them; overload holds them open.
 After 15 s "nudge" (slow forced closing) kicks in. The panels are driven with a
 velocity envelope that slows near both ends and speeds up in the middle — a real
@@ -253,8 +280,8 @@ timeout, encoder-floor-sensor mismatch, plus:
   The point of the cams is that they are wired from the shaft and owe nothing
   to the encoder — they are what is left when the count is wrong, which is the
   only situation they exist for. With the count jumped 3 m and the floor sensor
-  dead, the car crosses the top floor at 1221 mm/s instead of 1600 and the limit
-  switch stops it 110 mm short of the buffer; with the cams dead too, it reaches
+  dead, the car crosses the top floor at 1217 mm/s instead of 1600 and the limit
+  switch stops it 98 mm short of the buffer; with the cams dead too, it reaches
   the buffer.
 
 - **Overspeed (governor), two stages.** These are two separate devices and the
@@ -317,7 +344,9 @@ and encoder drift being trimmed against the vanes — including that gross slip
 and a dead sensor are still reported rather than absorbed — and terminal
 slowdown, measured against the same fault with the cams disabled — and
 independent service and firefighter Phase II, including that letting go of a
-constant-pressure button sends the door back.
+constant-pressure button sends the door back — and the door itself: the
+reversal counter, the force-limit reversal while nudging, and kinetic energy
+against EN 81-20.
 
 ---
 
@@ -460,6 +489,7 @@ detect it from its own inputs.
 | Terminal slowdown cams dead | The shaft cams stop reporting | (no fault on its own — it removes the last protection if the count is also wrong) |
 | Independent service | Attendant key switch in the car | (not a fault — landing calls bypassed, doors held until CLOSE) |
 | Firefighter Phase II | In-car firefighter key, after a Phase I recall | (not a fault — car calls only, constant-pressure doors) |
+| Object in the door gap | Something the light curtain cannot see stops the panels at 15 % | (not a fault — the operator stalls and reverses, even while nudging) |
 | Light curtain | Door permanently obstructed | (not a fault — the door reopens) |
 | No load compensation | Drive ignores the pre-torque reference | (not a fault — the car rolls back at the start) |
 | Mains failure | Supply lost, then the battery changeover | (not a fault — the ARD runs the car to the nearest floor) |
@@ -486,10 +516,10 @@ Measurement-driven improvements:
 | Triangles | 804 k | 519 k |
 | Video memory | 480 MB | 428 MB |
 
-Script time went the other way — 0.52 ms then, 1.21 ms now — because the plant
-grew a mass model, rope elasticity and the levelling vanes, and the controller
-grew four more modes. That is the cost of the physics being real, and at 60 Hz
-it is 7 % of the frame budget.
+Script time went the other way — 0.52 ms then, about 1 ms now — because the plant
+grew a mass model, rope elasticity, levelling vanes and a proper speed
+controller, and the control logic grew several more modes. That is the cost of
+the physics being real, and at 60 Hz it is about 6 % of the frame budget.
 
 - **Mesh sharing:** meshes of identical size share a single resource. Critical
   for the hundreds of rope-arc segments and repeated details. Meshes that are
@@ -539,11 +569,11 @@ indices in `PLC_PRG.st` (32 bits).
 godot --headless --path godot --script res://tests/sim_test.gd
 ```
 
-22 scenarios: car call and levelling, collective control, emergency stop +
+23 scenarios: car call and levelling, collective control, emergency stop +
 reset, overload start inhibit, fire evacuation (including a regression for the
 doors staying open), light curtain, travel timeout and recovery from a fault,
 brake feedback, overspeed, gong duration + alarm bell, ride quality (jerk and
-acceleration limits verified by measurement), load compensation (pre-torque
+acceleration measured the ISO 18738 way, filtered at 10 Hz), load compensation (pre-torque
 sign, and the rollback that appears when it is switched off), the safety gear
 (the governor gripping, the car held on the rails, and that RESET will not clear
 it), the battery rescue on mains failure (which way it chooses, that it stops at
@@ -615,16 +645,18 @@ To be straight about it, this is the part of the project that is not verified:
   (`st_lint_test.gd`). The lint verifies syntax, symbol resolution and FB
   interfaces but **does no type checking**. Do not be surprised by warnings on
   the first build.
-- Single-car system — group control (a shared dispatcher across several
-  elevators) is not modelled.
-- The door is a position model with a velocity envelope, not a force model:
-  closing force and the reversal counter that pushes a repeatedly obstructed
-  door into nudging are not represented.
-- Rope stretch is modelled with real elasticity, but the other things that move
-  a parked car — thermal drift, bearing and guide friction, rope creep over
-  months — are not. On a 16 m rise the stretch alone is a few millimetres, so
-  re-levelling rarely fires by itself; the worn-brake injection is there to
-  exercise it.
+- **Scope, not a deviation:** this is one car. A six-floor building like this
+  one would normally have exactly that; group control — one dispatcher sharing
+  calls across several cars — belongs to taller buildings and is not attempted.
+- **Timescale:** the twin runs for minutes. Effects that play out over months —
+  permanent rope elongation, guide and sheave groove wear, thermal drift of the
+  shaft — are outside that and are not modelled. On a 16 m rise the elastic rope
+  stretch is a few millimetres, so re-levelling rarely fires on its own in a
+  session; the worn-brake injection is there to exercise it.
+- **Speed controller:** the model has no encoder dead time or current-loop
+  dynamics, so its bandwidth (3 rad/s) is lower than a real drive's nominal
+  figure. It stands in for those, and is set where the uncompensated rollback
+  comes out at the few centimetres a real lift shows.
 
 ---
 

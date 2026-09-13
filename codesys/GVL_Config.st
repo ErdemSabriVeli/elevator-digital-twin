@@ -49,6 +49,7 @@ VAR_GLOBAL CONSTANT
     C_T_DOOR_DWELL     : TIME := T#4S;    // door dwell on a car call
     C_T_DOOR_DWELL_HALL: TIME := T#3S;    // on a landing call only
     C_T_DOOR_MOVE_MAX  : TIME := T#8S;    // door movement timeout
+    C_DOOR_REV_MAX     : INT  := 3;      // reversals before nudging
     C_T_TRAVEL_MAX     : TIME := T#25S;   // floor-to-floor travel timeout
     C_T_NUDGE          : TIME := T#15S;   // force the door closed after this
     C_T_GONG           : TIME := T#600MS;

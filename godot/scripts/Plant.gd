@@ -38,6 +38,10 @@ var sw_vane_dead := false         # the car's floor-zone sensor has failed
 var sw_nts_dead := false          # terminal slowdown cams not reporting
 var sw_independent := false       # attendant key switch in the car
 var sw_fire_ph2 := false          # firefighter key switch in the car
+## Something in the gap that the light curtain cannot see - a bag strap, a thin
+## stick, a lead. The door closes onto it and stalls there.
+var sw_door_blocked := false
+const DOOR_BLOCK_POS := 0.15      # where it sits, as door opening fraction
 
 ## Set when the car reaches the buffer at the end of the shaft. The buffer is
 ## the last thing between the car and the pit floor or the slab, so touching it
@@ -54,8 +58,14 @@ const BRAKE_RESPONSE_S := 0.15    # brake coil response time
 var _brake_t := 0.0
 var _torque_ramp := 0.0           # 0..1, how much pre-torque the drive has built
 var _ard_t := 0.0                 # time since the mains went
-var _a_loop := 0.0                # the speed loop's share of the acceleration
+var _v_prof := 0.0                # reference velocity from the comfort profile
+var _a_prof := 0.0                # reference acceleration
+var _pi_int := 0.0                # speed controller integral (mm/s2)
 var _slip_mm := 0.0               # payout the car never actually made
+var _stall_t := 0.0               # time spent pushing on something
+var door_stall := false           # operator at its force limit, not moving
+var door_force_n := 0.0           # thrust currently on the obstacle
+var door_speed_ms := 0.0          # panel speed, for the energy check
 
 # --- PLC commands (last received) -------------------------------------------
 var c_drive_enable := false
@@ -179,8 +189,12 @@ func step(dt: float) -> void:
 	#
 	#   a_stop = sqrt(2 * jerk * |error|)  -> the acceleration that can still be
 	#   bled to zero; approaching the target it backs off on its own, no overshoot.
+	# The comfort limits shape the REFERENCE profile, not the drive's response to
+	# load. They are what the passenger is meant to feel; a drive that could only
+	# fight a disturbance at passenger-comfort jerk would let an unbalanced car
+	# drop a metre before catching it.
 	var a_max := LiftCfg.ACCEL_MMS2
-	if absf(v_target) < absf(speed_mms):
+	if absf(v_target) < absf(_v_prof):
 		a_max = LiftCfg.DECEL_MMS2
 	var jerk := LiftCfg.JERK_MMS3
 
@@ -189,7 +203,7 @@ func step(dt: float) -> void:
 	# quickly, so we relax the limit here too — otherwise the car overshoots
 	# floor level and oscillates around it.
 	var creep := LiftCfg.V_LEVEL_MMS * 1.3
-	if absf(speed_mms) <= creep and absf(v_target) <= creep:
+	if absf(_v_prof) <= creep and absf(v_target) <= creep:
 		jerk = LiftCfg.JERK_MMS3 * 8.0
 
 	# --- load imbalance and the drive's answer to it -------------------------
@@ -215,15 +229,20 @@ func step(dt: float) -> void:
 		# would reverse). It also holds against the imbalance, so a_bias does
 		# not apply while the shoes are on.
 		accel_mms2 = 0.0
-		_a_loop = 0.0
 		speed_mms = move_toward(speed_mms, 0.0, LiftCfg.DECEL_MMS2 * 3.0 * dt)
+		# The speed controller is idle while the shoes are on. When the brake
+		# next lifts, the reference starts from wherever the car actually is.
+		_v_prof = speed_mms
+		_a_prof = 0.0
+		_pi_int = 0.0
 		# A worn brake does not quite hold. The car sinks the way the load
 		# pulls, slowly enough that nobody notices until the sill is out of
 		# line - which is what re-levelling then keeps quietly correcting.
 		if sw_brake_creep and not safety_gear_set:
 			speed_mms = signf(imbalance_accel_mms2()) * LiftCfg.BRAKE_CREEP_MMS
 	else:
-		var v_err := v_target - speed_mms
+		# --- 1) reference profile: the S-curve the passenger is meant to feel --
+		var v_err := v_target - _v_prof
 		var a_cmd := 0.0
 		if absf(v_err) > 0.001:
 			var a_stop := sqrt(2.0 * jerk * absf(v_err))
@@ -234,11 +253,43 @@ func step(dt: float) -> void:
 			var a_reach := v_err / dt
 			if absf(a_cmd) > absf(a_reach):
 				a_cmd = a_reach
+		_a_prof = move_toward(_a_prof, a_cmd, jerk * dt)
+		_v_prof += _a_prof * dt
 
-		# The speed loop only has to make up whatever the feed-forward missed —
-		# the residual is what the passenger feels as rollback.
-		_a_loop = move_toward(_a_loop, a_cmd, jerk * dt)
-		accel_mms2 = _a_loop + a_bias + a_ff
+		# --- 2) speed controller: PI on the reference, fast, torque-limited ---
+		# This is what rejects the load. The reference acceleration is fed
+		# forward so tracking costs no error; the proportional and integral
+		# terms deal with everything the model of the car does not know — and
+		# without pre-torque, that includes the whole imbalance at the moment
+		# the brake lifts. What the passenger feels as rollback is how far the
+		# car gets before the integral has learnt it.
+		var w := LiftCfg.SPEED_LOOP_W
+		var e := _v_prof - speed_mms
+		_pi_int = clampf(_pi_int + w * w * e * dt,
+				-LiftCfg.A_TORQUE_MAX, LiftCfg.A_TORQUE_MAX)
+		# Friction is known well enough to feed forward, as real drives do. Leave
+		# it to the integral and the integral has to relearn it every time the
+		# car changes direction, which shows up as a wobble at every stop.
+		var a_fric_ff: float = 0.0
+		if absf(_v_prof) > 1.0:
+			a_fric_ff = signf(_v_prof) * LiftCfg.RUNNING_FRICTION_N * 1000.0 / moving_mass_kg()
+		var a_motor := clampf(_a_prof + 2.0 * w * e + _pi_int + a_ff + a_fric_ff,
+				-LiftCfg.A_TORQUE_MAX, LiftCfg.A_TORQUE_MAX)
+		var a_drive := a_motor + a_bias
+
+		# Running resistance: guide rollers on four rails, the sheave and
+		# deflector bearings, and the ropes bending over the grooves. It always
+		# opposes motion, and at a stand it holds against whatever is pushing
+		# until that push exceeds it — which is why a lift balanced to within a
+		# few kilos does not creep when the brake lifts.
+		var a_fric: float = LiftCfg.RUNNING_FRICTION_N * 1000.0 / moving_mass_kg()
+		if absf(speed_mms) > 0.5:
+			accel_mms2 = a_drive - signf(speed_mms) * a_fric
+		elif absf(a_drive) <= a_fric:
+			accel_mms2 = 0.0
+			speed_mms = 0.0
+		else:
+			accel_mms2 = a_drive - signf(a_drive) * a_fric
 		speed_mms += accel_mms2 * dt
 
 	# --- overspeed governor and safety gear ---------------------------------
@@ -258,7 +309,11 @@ func step(dt: float) -> void:
 		# constant retardation rather than stopping the car dead.
 		speed_mms = move_toward(speed_mms, 0.0, LiftCfg.A_GEAR_MMS2 * dt)
 		accel_mms2 = 0.0
-		_a_loop = 0.0
+		# Nothing the drive does moves a car sitting on its wedges, so do not
+		# let the speed controller wind up trying.
+		_v_prof = speed_mms
+		_a_prof = 0.0
+		_pi_int = 0.0
 		# Set wedges hold against downward motion; the car can still be lifted
 		# off them, which is how they are freed.
 		speed_mms = maxf(speed_mms, 0.0)
@@ -311,6 +366,8 @@ func step(dt: float) -> void:
 	# operator can turn all it likes and nothing moves — which is what stops a
 	# stranded car opening onto the shaft wall. This is a mechanism, not a rule
 	# the controller is trusted to follow, so it lives here in the plant.
+	var door_before := door_pos
+	var pushing := false
 	if in_door_zone() and absf(speed_mms) < 100.0:
 		var env: float = 0.35 + 0.65 * sin(PI * clampf(door_pos, 0.0, 1.0))
 		if c_door_open:
@@ -319,7 +376,29 @@ func step(dt: float) -> void:
 			var sp := env * dt / LiftCfg.DOOR_CLOSE_TIME
 			if c_door_nudge:
 				sp *= LiftCfg.DOOR_NUDGE_SCALE
-			door_pos = maxf(0.0, door_pos - sp)
+			var floor_pos := 0.0
+			# Something in the gap the curtain cannot see: the panels close onto
+			# it and go no further, however the operator is driven.
+			if sw_door_blocked and door_pos >= DOOR_BLOCK_POS - 1e-6:
+				floor_pos = DOOR_BLOCK_POS
+			door_pos = maxf(floor_pos, door_pos - sp)
+			pushing = floor_pos > 0.0 and door_pos <= floor_pos + 1e-6
+
+	# Each panel travels half the opening, so panel speed is the opening rate
+	# times half the door width.
+	door_speed_ms = absf(door_pos - door_before) / dt * LiftCfg.M_DOOR_W * 0.5
+
+	# Pushing on the obstacle without moving: the operator rises to its thrust
+	# limit and holds there, and after a moment that is a stall. The force is
+	# capped by the operator itself, which is why a real door can be stopped by
+	# hand at all.
+	if pushing:
+		_stall_t += dt
+		door_force_n = LiftCfg.DOOR_FORCE_N
+	else:
+		_stall_t = 0.0
+		door_force_n = 0.0
+	door_stall = _stall_t >= LiftCfg.DOOR_STALL_S
 
 	# --- trip counter ------------------------------------------------------
 	var mv := absf(speed_mms) > 5.0
@@ -420,6 +499,7 @@ func build_registers(heartbeat: int) -> PackedInt32Array:
 			and car_pos_mm() >= top_mm - float(LiftCfg.NTS_DIST_MM))
 	lim = LiftIo.set_bit(lim, LiftIo.LIM_NTS_BOT, not sw_nts_dead
 			and car_pos_mm() <= float(LiftCfg.NTS_DIST_MM))
+	lim = LiftIo.set_bit(lim, LiftIo.LIM_DOOR_STALL, door_stall)
 	r[LiftIo.IN_LIMITS] = lim
 
 	# --- analogue ----------------------------------------------------------

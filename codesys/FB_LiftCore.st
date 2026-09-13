@@ -551,6 +551,7 @@ fbDoor(
     xOverload    := stIn.xOverload,
     xDoorZone    := stIn.axFloorZone[iCurFloor],
     xConstPress  := xPh2,
+    xStall       := stIn.xDoorStall,
     tDwell       := tDwellUse
 );
 

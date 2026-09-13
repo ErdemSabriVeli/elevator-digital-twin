@@ -322,6 +322,7 @@ func _on_switch(name: String, v: bool) -> void:
 		"nts": plant.sw_nts_dead = v
 		"indep": plant.sw_independent = v
 		"ph2": plant.sw_fire_ph2 = v
+		"block": plant.sw_door_blocked = v
 
 
 # =============================================================================

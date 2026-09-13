@@ -39,6 +39,7 @@ const DECEL_DIST_MM      := 2600
 const T_DOOR_DWELL       := 4.0       # s
 const T_DOOR_DWELL_HALL  := 3.0
 const T_DOOR_MOVE_MAX    := 8.0
+const DOOR_REV_MAX       := 3         # reversals before nudging
 const T_TRAVEL_MAX       := 25.0
 const T_NUDGE            := 15.0
 const T_GONG             := 0.6
@@ -78,9 +79,25 @@ const JERK_MMS3          := 1300.0    # rate of change of acceleration (S-curve)
 const DOOR_OPEN_TIME     := 2.0       # time to open fully [s]
 const DOOR_CLOSE_TIME    := 2.4
 const DOOR_NUDGE_SCALE   := 0.45      # speed factor while nudging
+# Door panels: car and landing panels move together through the coupler, so
+# the operator is shifting both. EN 81-20 5.3.6 caps the kinetic energy of
+# that moving mass at 10 J, and at 4 J while nudging - which is the reason
+# nudging is slow rather than a policy choice.
+const DOOR_MASS_KG       := 70.0
+const DOOR_FORCE_N       := 135.0     # operator stall thrust (limit 150 N)
+const DOOR_STALL_S       := 0.25      # pushing without moving this long = stall
 const BTN_PULSE_S        := 0.25      # momentary button pulse width
 const ENC_NOISE_MM       := 0.0       # optional encoder noise
 const G_MMS2             := 9810.0    # gravity
+# Guide rollers, sheave and deflector bearings, rope bending: a real gearless
+# installation on roller guides runs at a couple of hundred newtons.
+const RUNNING_FRICTION_N := 250.0
+# The drive's speed controller. Bandwidth sets how quickly load is rejected;
+# roughly 8 rad/s is where an uncompensated full imbalance costs the few
+# centimetres of rollback a real lift without load weighing shows. The torque
+# limit is the drive's current limit, expressed as acceleration of the car.
+const SPEED_LOOP_W       := 3.0
+const A_TORQUE_MAX       := 3000.0
 const ROT_INERTIA        := 1.10      # sheave + motor inertia, as a factor on
                                       # the moving mass
 const T_TORQUE_RAMP      := 0.25      # time for the drive to build pre-torque

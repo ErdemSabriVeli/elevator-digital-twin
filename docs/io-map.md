@@ -63,6 +63,7 @@ FC16, then reads input registers 0–15 with FC04.
 | | | 11 | Levelling vane: car is above the sill |
 | | | 12 | Terminal slowdown cam, top end |
 | | | 13 | Terminal slowdown cam, bottom end |
+| | | 14 | Door operator stalled at its force limit |
 
 > Bits 6 and 7 are **1 when healthy**; bit 8 is **1 when tripped**. If the Godot
 > link drops, the PLC treats bit 6 as 0.

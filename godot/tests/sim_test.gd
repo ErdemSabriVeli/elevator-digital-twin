@@ -43,6 +43,7 @@ func _initialize() -> void:
 	test_encoder_correction()
 	test_terminal_slowdown()
 	test_special_services()
+	test_door_force_and_reversals()
 
 	print("\n=== RESULT: %s ===" % ("ALL TESTS PASSED" if failures == 0
 			else "%d FAILED" % failures))
@@ -357,10 +358,18 @@ func test_ride_quality() -> void:
 
 	press_for("car_5")
 
-	# measure the rate of change of acceleration (jerk) over the trip
-	var prev_a := plant.accel_mms2
+	# Measured the way a ride-quality analyser does it (ISO 18738): the car's
+	# acceleration is low-pass filtered at 10 Hz before anything is derived from
+	# it, and jerk is judged over the part of the ride taken at speed. Levelling
+	# at creep is deliberately brisker and is not what the comfort figure is for,
+	# and a raw sample-to-sample difference mostly measures the sample rate.
+	const FILTER_HZ := 10.0
+	var alpha: float = 1.0 - exp(-TAU * FILTER_HZ * DT)
+	var a_filt := 0.0
+	var prev_f := 0.0
 	var max_jerk := 0.0
 	var max_acc := 0.0
+	var creep := float(LiftCfg.V_LEVEL_MMS) * 1.3
 	var elapsed := 0.0
 	while elapsed < 20.0:
 		plant.apply_outputs(regs_out)
@@ -369,23 +378,24 @@ func test_ride_quality() -> void:
 		regs_out = plc.scan(plant.build_registers(hb), DT)
 		elapsed += DT
 		t += DT
-		# Only measure while the drive is producing torque. The brake-holding /
-		# emergency-stop path is deliberately harsh and not subject to the
-		# comfort limit.
+		# Only while the drive is producing torque: the brake-holding /
+		# emergency-stop path is deliberately harsh and not a comfort matter.
 		if plant.powered:
-			max_jerk = maxf(max_jerk, absf(plant.accel_mms2 - prev_a) / DT)
-			max_acc = maxf(max_acc, absf(plant.accel_mms2))
-		prev_a = plant.accel_mms2
+			a_filt += alpha * (plant.accel_mms2 - a_filt)
+			if absf(plant.speed_mms) > creep:
+				max_jerk = maxf(max_jerk, absf(a_filt - prev_f) / DT)
+			max_acc = maxf(max_acc, absf(a_filt))
+		prev_f = a_filt
 		if cur_floor() == 5 and status(LiftIo.ST_DOOR_OPEN):
 			break
 
 	check("reached floor 5", cur_floor() == 5, "(floor=%d)" % cur_floor())
-	# the limit is relaxed at creep speed, so leave some headroom
-	check("jerk limit not exceeded", max_jerk <= LiftCfg.JERK_MMS3 * 8.5,
-			"(measured %.0f mm/s3, target %.0f, tolerated %.0f)"
-					% [max_jerk, LiftCfg.JERK_MMS3, LiftCfg.JERK_MMS3 * 8.5])
+	check("jerk at speed stays near the comfort figure",
+			max_jerk <= LiftCfg.JERK_MMS3 * 1.5,
+			"(%.0f mm/s3 filtered at %.0f Hz, comfort figure %.0f)"
+					% [max_jerk, FILTER_HZ, LiftCfg.JERK_MMS3])
 	check("acceleration limit not exceeded", max_acc <= LiftCfg.DECEL_MMS2 * 1.05,
-			"(measured %.0f mm/s2, limit %.0f)" % [max_acc, LiftCfg.DECEL_MMS2])
+			"(%.0f mm/s2 filtered, limit %.0f)" % [max_acc, LiftCfg.DECEL_MMS2])
 	check("levelling held",
 			absf(plant.pos_mm - 5 * LiftCfg.FLOOR_HEIGHT_MM) <= LiftCfg.LEVEL_TOL_MM,
 			"(error %.1f mm)" % (plant.pos_mm - 5 * LiftCfg.FLOOR_HEIGHT_MM))
@@ -412,8 +422,10 @@ func rollback_mm(start_floor: int, target: String, load: int,
 		t += DT
 		var d := plant.pos_mm - p0
 		worst = minf(worst, d) if up else maxf(worst, d)
-		# stop once the car is clearly under way in the intended direction
-		if absf(plant.speed_mms) > 200.0:
+		# Stop once the car is clearly under way in the INTENDED direction. An
+		# uncompensated car can sink faster than this, so testing the magnitude
+		# alone would cut the rollback off part-way and under-report it.
+		if (plant.speed_mms > 200.0) if up else (plant.speed_mms < -200.0):
 			break
 	return absf(worst)
 
@@ -447,14 +459,17 @@ func test_load_compensation() -> void:
 	var without := rollback_mm(1, "car_4", LiftCfg.LOAD_FULL_KG, false, true)
 	check("compensated start does not roll back", with_comp < 1.0,
 			"(%.2f mm)" % with_comp)
-	check("uncompensated full car sinks on brake release", without > 5.0,
-			"(%.1f mm)" % without)
+	# Bounded on both sides. It has to be there to show the compensation earns
+	# its keep, but a real drive catches an unbalanced car within centimetres -
+	# a metre of rollback means the model is fighting the load at comfort jerk.
+	check("uncompensated full car sinks on brake release, by centimetres",
+			without > 5.0 and without < 60.0, "(%.1f mm)" % without)
 
 	# An empty car going down is the mirror image: it is lighter than the
 	# counterweight, so with no torque it gets pulled up.
 	var up_kick := rollback_mm(4, "car_1", 0, false, false)
-	check("uncompensated empty car lifts on brake release", up_kick > 5.0,
-			"(%.1f mm)" % up_kick)
+	check("uncompensated empty car lifts on brake release, by centimetres",
+			up_kick > 5.0 and up_kick < 60.0, "(%.1f mm)" % up_kick)
 
 	# The whole point: the imbalance must not survive into the ride.
 	reset(0)
@@ -1089,3 +1104,115 @@ func test_special_services() -> void:
 	plant.hold("door_open", false)
 	check("holding OPEN is what opens it", plant.door_pos > 0.95,
 			"(door=%.0f%%)" % (plant.door_pos * 100))
+
+
+## Runs until the door has fully re-opened, tracking the fastest panel speed.
+func door_run(seconds: float, peak: Array) -> void:
+	var elapsed := 0.0
+	while elapsed < seconds:
+		plant.apply_outputs(regs_out)
+		plant.step(DT)
+		hb = (hb + 1) % 32000
+		regs_out = plc.scan(plant.build_registers(hb), DT)
+		elapsed += DT
+		t += DT
+		peak[0] = maxf(peak[0], plant.door_speed_ms)
+		peak[1] = maxf(peak[1], plant.door_force_n)
+
+
+func nudging() -> bool:
+	return LiftIo.get_bit(regs_out[LiftIo.OUT_DOOR_CMD], LiftIo.DOOR_NUDGE_CMD)
+
+
+func test_door_force_and_reversals() -> void:
+	print("\n23) Door: reversal counter, force limit, kinetic energy")
+	reset(0)
+	press_for("car_2")
+	step_until(func(): return cur_floor() == 2 and plant.door_pos > 0.99, 30.0)
+	var t_open := t
+
+	# --- the reversal counter --------------------------------------------
+	# Something keeps breaking the curtain every time the door starts to move.
+	# A real operator does not wait out the full nudge timer for that: after a
+	# few turn-backs it gives up on the curtain and nudges.
+	var normal := [0.0, 0.0]
+	for i in range(LiftCfg.DOOR_REV_MAX):
+		plant.press("door_close")
+		door_run(0.6, normal)
+		plant.press("obstruct")
+		door_run(0.4, normal)
+		step_until(func(): return plant.door_pos > 0.99, 5.0)
+	step(0.1)
+	check("%d curtain reversals start nudging" % LiftCfg.DOOR_REV_MAX, nudging())
+	check("well before the nudge timer would have",
+			t - t_open < LiftCfg.T_NUDGE * 0.8,
+			"(%.1f s after opening, timer is %.0f s)" % [t - t_open, LiftCfg.T_NUDGE])
+
+	# --- nudging ignores the curtain ... ----------------------------------
+	plant.sw_obstruction = true
+	press_for("car_4")
+	var nudge := [0.0, 0.0]
+	var shut := false
+	var waited := 0.0
+	while waited < 20.0 and not shut:
+		door_run(0.1, nudge)
+		waited += 0.1
+		shut = plant.door_pos < 0.01
+	check("a nudging door closes through a broken curtain", shut,
+			"(door=%.0f%%)" % (plant.door_pos * 100))
+
+	# --- ... but never ignores something physically in the way ------------
+	# Back at a floor, nudging again, with a strap in the gap that the curtain
+	# does not see. The operator must stall on it and turn back, not keep
+	# pressing - nudging drops the curtain, never the force limit.
+	step_until(func(): return cur_floor() == 4 and plant.door_pos > 0.99, 40.0)
+	for i in range(LiftCfg.DOOR_REV_MAX):
+		plant.press("door_close")
+		door_run(0.6, normal)
+		plant.press("obstruct")
+		door_run(0.4, normal)
+		step_until(func(): return plant.door_pos > 0.99, 5.0)
+	plant.sw_door_blocked = true
+	press_for("car_1")
+	var hit := [0.0, 0.0]
+	var stalled := false
+	var reopened := false
+	waited = 0.0
+	while waited < 20.0 and not reopened:
+		door_run(DT, hit)
+		waited += DT
+		stalled = stalled or plant.door_stall
+		reopened = stalled and plant.door_pos > LiftPlant.DOOR_BLOCK_POS + 0.2
+	check("the door stalls on an object the curtain cannot see", stalled,
+			"(door held at %.0f%%)" % (LiftPlant.DOOR_BLOCK_POS * 100))
+	check("and turns back instead of pressing on", reopened,
+			"(door=%.0f%%, nudging=%s)" % [plant.door_pos * 100, nudging()])
+	check("pushing no harder than the 150 N EN 81-20 allows", hit[1] <= 150.0,
+			"(peak %.0f N)" % hit[1])
+	plant.sw_door_blocked = false
+
+	# --- kinetic energy ----------------------------------------------------
+	# EN 81-20 5.3.6: at most 10 J in the moving door, and 4 J while nudging.
+	# That limit is why nudging is slow, not a stylistic choice. The normal figure
+	# comes from one full uninterrupted close, so it includes mid-travel, where
+	# the operator runs fastest - the turn-backs above never got that far.
+	reset(0)
+	press_for("car_2")
+	step_until(func(): return cur_floor() == 2 and plant.door_pos > 0.99, 30.0)
+	normal = [0.0, 0.0]
+	var full := false
+	waited = 0.0
+	while waited < 20.0 and not full:
+		door_run(DT, normal)
+		waited += DT
+		full = plant.door_pos < 0.005
+	var v_normal: float = normal[0]
+	var v_nudge: float = nudge[0]
+	var ke_normal: float = 0.5 * LiftCfg.DOOR_MASS_KG * v_normal * v_normal
+	var ke_nudge: float = 0.5 * LiftCfg.DOOR_MASS_KG * v_nudge * v_nudge
+	check("normal closing stays under 10 J", normal[0] > 0.0 and ke_normal <= 10.0,
+			"(%.2f J at %.3f m/s)" % [ke_normal, normal[0]])
+	check("nudging stays under 4 J", nudge[0] > 0.0 and ke_nudge <= 4.0,
+			"(%.2f J at %.3f m/s)" % [ke_nudge, nudge[0]])
+	check("and nudging really is the slower of the two", nudge[0] < normal[0],
+			"(%.3f vs %.3f m/s)" % [nudge[0], normal[0]])

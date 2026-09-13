@@ -119,6 +119,7 @@ class Inputs extends RefCounted:
 	var relevel_down := false
 	var nts_top := false          # terminal slowdown cam, top end
 	var nts_bot := false          # terminal slowdown cam, bottom end
+	var door_stall := false       # door operator stalled at its force limit
 
 	var estop := false
 	var overload := false
@@ -409,11 +410,12 @@ class DoorCtrl extends RefCounted:
 	var _t_dwell := Ton.new()
 	var _t_move := Ton.new()
 	var _t_nudge := Ton.new()
+	var reversals := 0            # re-openings in this closing attempt
 
 	func scan(enable: bool, req_open: bool, req_close: bool,
 			open_limit: bool, close_limit: bool, obstruction: bool,
 			open_btn: bool, close_btn: bool, overload: bool, door_zone: bool,
-			const_press: bool, dwell: float, dt: float) -> void:
+			const_press: bool, stall: bool, dwell: float, dt: float) -> void:
 
 		open_out = false
 		close_out = false
@@ -425,6 +427,7 @@ class DoorCtrl extends RefCounted:
 			state = LiftIo.DoorState.CLOSED
 			_t_dwell.reset(); _t_move.reset(); _t_nudge.reset()
 			nudge = false
+			reversals = 0
 			remain_ms = 0
 			return
 
@@ -433,6 +436,7 @@ class DoorCtrl extends RefCounted:
 				_t_dwell.reset()
 				_t_nudge.reset()
 				nudge = false
+				reversals = 0
 				# Outside the unlocking zone the doors stay shut, however hard
 				# the button is leaned on. The coupler vane on the car door only
 				# engages the landing door rollers inside the zone - a stranded
@@ -464,7 +468,11 @@ class DoorCtrl extends RefCounted:
 			LiftIo.DoorState.OPEN:
 				_t_dwell.update(not (obstruction or overload or open_btn or req_open), dwell, dt)
 				_t_nudge.update(true, LiftCfg.T_NUDGE, dt)
-				nudge = _t_nudge.q
+				# Nudging starts either way: stood open too long, or turned back too
+				# many times. Something that keeps breaking the curtain is not going
+				# to stop - a coat hanging in the gap, a child playing with it - and
+				# the car cannot sit there for ever.
+				nudge = _t_nudge.q or reversals >= LiftCfg.DOOR_REV_MAX
 				remain_ms = int(maxf(0.0, dwell - _t_dwell.et) * 1000.0)
 				dwell_done = _t_dwell.q
 
@@ -500,8 +508,19 @@ class DoorCtrl extends RefCounted:
 						_t_nudge.reset()
 						nudge = false
 						state = LiftIo.DoorState.CLOSED
+				# The operator's force limit reverses the door even while nudging.
+				# Nudging stops listening to the light curtain; it never stops
+				# listening to something physically in the way. That is the
+				# difference between a slow insistent door and a dangerous one.
+				# EN 81-20 5.3.6.
+				elif stall:
+					_t_move.reset()
+					reversals += 1
+					state = LiftIo.DoorState.REOPEN
 				elif open_btn or req_open or overload or (obstruction and not nudge):
 					_t_move.reset()
+					if obstruction:
+						reversals += 1
 					state = LiftIo.DoorState.REOPEN
 				elif close_limit:
 					_t_move.reset()
@@ -1235,7 +1254,7 @@ class LiftCore extends RefCounted:
 		door.scan(not inp.estop and inp.safety_chain, door_req_open, door_req_close,
 				inp.door_open_limit, inp.door_close_limit, inp.obstruction,
 				inp.door_open_btn, inp.door_close_btn, inp.overload,
-				inp.floor_zone[cur_floor], ph2, dwell, dt)
+				inp.floor_zone[cur_floor], ph2, inp.door_stall, dwell, dt)
 
 		# --- 7) motion ---------------------------------------------------------
 		# No overload check here: the start inhibit lives in DOOR_CLOSING.
@@ -1347,6 +1366,7 @@ func scan(mb_in: PackedInt32Array, dt: float) -> PackedInt32Array:
 	_inp.relevel_down = LiftIo.get_bit(lim, LiftIo.LIM_RELEVEL_DN)
 	_inp.nts_top = LiftIo.get_bit(lim, LiftIo.LIM_NTS_TOP)
 	_inp.nts_bot = LiftIo.get_bit(lim, LiftIo.LIM_NTS_BOT)
+	_inp.door_stall = LiftIo.get_bit(lim, LiftIo.LIM_DOOR_STALL)
 
 	_inp.pos_mm = LiftIo.to_signed(mb_in[LiftIo.IN_POS_MM])
 	_inp.act_speed_mms = mb_in[LiftIo.IN_SPEED_MMS]

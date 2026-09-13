@@ -58,6 +58,7 @@ const LIM_RELEVEL_UP  := 10    # car is BELOW floor level -> creep up
 const LIM_RELEVEL_DN  := 11    # car is ABOVE floor level -> creep down
 const LIM_NTS_TOP     := 12    # terminal slowdown cam, top end
 const LIM_NTS_BOT     := 13    # terminal slowdown cam, bottom end
+const LIM_DOOR_STALL  := 14    # door operator stalled at its force limit
 
 # =============================================================================
 # PLC -> Godot   (Input Registers)
