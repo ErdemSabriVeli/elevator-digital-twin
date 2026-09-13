@@ -25,6 +25,7 @@ VAR_GLOBAL CONSTANT
     C_V_OVERSPEED_MMS  : INT  := 1840;   // governor electrical trip (115%)
     C_V_GEAR_TRIP_MMS  : INT  := 2000;   // governor mechanical trip -> the
                                          // safety gear grips the rails (125%)
+    C_V_ARD_MMS        : INT  := 200;    // rescue speed on battery
     C_DECEL_DIST_MM    : DINT := 2000;   // distance at which to start slowing
                                          // (sized for the stopping distance of
                                          //  the jerk-limited drive)
@@ -42,6 +43,7 @@ VAR_GLOBAL CONSTANT
     C_T_ALARM          : TIME := T#2S;    // how long the alarm bell rings
     C_T_BRAKE_FB       : TIME := T#1S;    // brake feedback supervision
     C_T_OVERSPEED      : TIME := T#300MS; // overspeed confirmation time
+    C_T_ARD_START      : TIME := T#3S;    // mains loss -> battery changeover
 
     // --- Floors / load ------------------------------------------------------
     C_PARK_FLOOR       : INT  := 0;

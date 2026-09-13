@@ -37,9 +37,11 @@ const T_START_DELAY      := 0.2
 const T_ALARM            := 2.0       # how long the bell rings after a press
 const T_BRAKE_FB         := 1.0       # brake feedback supervision window
 const T_OVERSPEED        := 0.3       # overspeed confirmation time
+const T_ARD_START        := 3.0       # mains loss -> battery changeover
 const V_OVERSPEED_MMS    := 1840      # governor electrical trip (115 %)
 const V_GEAR_TRIP_MMS    := 2000      # governor mechanical trip -> safety gear
                                       # grips the rails (125 %)
+const V_ARD_MMS          := 200       # rescue speed on battery
 
 const PARK_FLOOR         := 0
 const FIRE_FLOOR         := 0

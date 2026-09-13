@@ -220,6 +220,7 @@ func test_bit_map() -> void:
 		"xDoorOpenLimit": "LIM_DOOR_OPEN", "xDoorCloseLimit": "LIM_DOOR_CLOSE",
 		"xDoorLocked": "LIM_DOOR_LOCK", "xBrakeFb": "LIM_BRAKE_FB",
 		"xSafetyChain": "LIM_SAFETY", "xGovernorOk": "LIM_GOVERNOR",
+		"xSafetyGear": "LIM_SAFETY_GEAR", "xMainsOk": "LIM_MAINS_OK",
 	}
 	_cmp_getbits(src, "wCmd", cmd_map, io)
 	_cmp_getbits(src, "wLim", lim_map, io)
@@ -230,7 +231,7 @@ func test_bit_map() -> void:
 		"xFaultLamp": "ST_FAULT", "xFireMode": "ST_FIRE",
 		"xInspMode": "ST_INSPECTION", "xOutOfService": "ST_OUT_OF_SVC",
 		"xGong": "ST_GONG", "xCabinLight": "ST_CABIN_LIGHT",
-		"xAlarm": "ST_ALARM",
+		"xAlarm": "ST_ALARM", "xRescue": "ST_RESCUE",
 	}
 	var re := RegEx.new()
 	re.compile("F_SetBit\\(wTmp,\\s*(\\d+),\\s*GVL_IO\\.g_stOut\\.(\\w+)\\)")

@@ -267,6 +267,8 @@ func _update_visuals(delta: float) -> void:
 		# the indicator blinks on a fault
 		txt = "-" if fmod(_blink, 1.0) < 0.5 else " "
 		arrow = LiftIo.DIR_NONE
+	elif LiftIo.get_bit(status, LiftIo.ST_RESCUE):
+		txt = "E"
 	elif LiftIo.get_bit(status, LiftIo.ST_FIRE):
 		txt = "F"
 	elif LiftIo.get_bit(status, LiftIo.ST_INSPECTION):
@@ -314,6 +316,7 @@ func _on_switch(name: String, v: bool) -> void:
 		"jam": plant.sw_car_jammed = v
 		"nocomp": plant.sw_no_load_comp = v
 		"runaway": plant.sw_severe_runaway = v
+		"mains": plant.sw_mains_fail = v
 
 
 # =============================================================================

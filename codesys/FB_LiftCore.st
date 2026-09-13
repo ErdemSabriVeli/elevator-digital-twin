@@ -48,6 +48,10 @@ VAR
     tofAlarm    : TOF;
     xGongArm    : BOOL;
     xFireParked : BOOL;   // reached the recall floor (the fire mode latch)
+    xRescueParked : BOOL; // the rescue run has reached a floor
+    diNetKg     : DINT;
+    iFloorBelow : INT;
+    iFloorAbove : INT;
     xOverspeed  : BOOL;
     xBrakeBad   : BOOL;
     iHb         : INT;
@@ -134,8 +138,14 @@ IF fbSafety.xFault AND (eState <> LS_FAULT) THEN
     eState := LS_FAULT;
 ELSIF stIn.xInspection AND (eState <> LS_INSPECTION) AND NOT fbSafety.xFault THEN
     eState := LS_INSPECTION;
-ELSIF stIn.xFireCall AND (eState <> LS_FIRE) AND NOT fbSafety.xFault
+ELSIF NOT stIn.xMainsOk AND (eState <> LS_RESCUE) AND NOT fbSafety.xFault
       AND NOT stIn.xInspection THEN
+    (* Mains lost. This outranks fire recall: with no supply there is nothing
+       to recall the car with, and getting the passengers out of a stalled car
+       is the more urgent job. *)
+    eState := LS_RESCUE;
+ELSIF stIn.xFireCall AND (eState <> LS_FIRE) AND NOT fbSafety.xFault
+      AND NOT stIn.xInspection AND stIn.xMainsOk THEN
     eState := LS_FIRE;
 END_IF
 
@@ -322,6 +332,54 @@ CASE eState OF
         END_IF
 
     // -----------------------------------------------------------------------
+    // Mains failure: the rescue drive runs the car off a battery to the
+    // NEAREST floor and opens the doors. It answers no calls - the only job
+    // is not to leave anybody shut in between floors.
+    LS_RESCUE:
+        IF NOT xRescueParked THEN
+            (* The battery is small, so go the way the load is already pulling:
+               downhill costs the inverter almost nothing, uphill costs it
+               everything. A car heavier than the counterweight sinks. *)
+            diNetKg := INT_TO_DINT(C_CAR_EMPTY_KG) + INT_TO_DINT(stIn.iLoadKg)
+                       - INT_TO_DINT(C_CWT_KG);
+            iFloorBelow := DINT_TO_INT(stIn.diPosMM / C_FLOOR_HEIGHT_MM);
+            IF iFloorBelow < 0 THEN
+                iFloorBelow := 0;
+            END_IF
+            IF stIn.diPosMM > INT_TO_DINT(iFloorBelow) * C_FLOOR_HEIGHT_MM THEN
+                iFloorAbove := iFloorBelow + 1;
+            ELSE
+                iFloorAbove := iFloorBelow;
+            END_IF
+            IF iFloorAbove > C_TOP_FLOOR THEN
+                iFloorAbove := C_TOP_FLOOR;
+            END_IF
+
+            IF diNetKg >= 0 THEN
+                iTargetFlr := iFloorBelow;
+                eDir       := DIR_DOWN;
+            ELSE
+                iTargetFlr := iFloorAbove;
+                eDir       := DIR_UP;
+            END_IF
+
+            xDoorReqCls := TRUE;
+            IF fbMotion.xAtTarget THEN
+                xRescueParked := TRUE;
+            END_IF
+        ELSE
+            (* Parked: let them out and stay put until the mains come back. *)
+            iTargetFlr   := -1;
+            eDir         := DIR_NONE;
+            xDoorReqOpen := TRUE;
+        END_IF
+
+        IF stIn.xMainsOk THEN
+            xRescueParked := FALSE;
+            eState := LS_IDLE;
+        END_IF
+
+    // -----------------------------------------------------------------------
     LS_INSPECTION:
         iTargetFlr := -1;
         eDir       := DIR_NONE;
@@ -408,7 +466,8 @@ fbMotion(
     xInspection  := stIn.xInspection,
     xInspUp      := stIn.xInspUp,
     xInspDown    := stIn.xInspDown,
-    iLoadKg      := stIn.iLoadKg
+    iLoadKg      := stIn.iLoadKg,
+    xRescue      := (eState = LS_RESCUE)
 );
 
 // ===========================================================================
@@ -444,6 +503,7 @@ stOut.xMoving       := fbMotion.xRunUp OR fbMotion.xRunDown;
 stOut.xOverloadLamp := stIn.xOverload;
 stOut.xFaultLamp    := fbSafety.xFault;
 stOut.xFireMode     := (eState = LS_FIRE);
+stOut.xRescue       := (eState = LS_RESCUE);
 stOut.xInspMode     := (eState = LS_INSPECTION);
 stOut.xOutOfService := fbSafety.xFault OR (eState = LS_INSPECTION) OR (eState = LS_FIRE);
 stOut.xCabinLight   := NOT fbSafety.xFault OR (fbSafety.eFault <> FLT_SAFETY_CHAIN);

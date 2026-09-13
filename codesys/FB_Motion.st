@@ -22,6 +22,7 @@ VAR_INPUT
     xInspUp      : BOOL;
     xInspDown    : BOOL;
     iLoadKg      : INT;       // load cell reading
+    xRescue      : BOOL;      // battery rescue run: creep speed only
 END_VAR
 VAR_OUTPUT
     xDriveEnable  : BOOL;
@@ -166,6 +167,12 @@ ELSE
                             * INT_TO_DINT(C_V_RATED_MMS - C_V_LEVEL_MMS))
                             / (C_DECEL_DIST_MM - C_DOOR_ZONE_MM) );
     xLeveling := FALSE;
+END_IF
+
+// The battery behind the rescue drive is small: it only ever moves the car at
+// creep speed, and only as far as the next floor.
+IF xRescue THEN
+    iSpeedSp := MIN(iSpeedSp, C_V_ARD_MMS);
 END_IF
 
 // --- direction and drive ---------------------------------------------------

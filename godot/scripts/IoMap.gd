@@ -48,6 +48,7 @@ const LIM_BRAKE_FB    := 5
 const LIM_SAFETY      := 6
 const LIM_GOVERNOR    := 7
 const LIM_SAFETY_GEAR := 8     # wedges gripping the guide rails
+const LIM_MAINS_OK    := 9     # mains supply healthy
 
 # =============================================================================
 # PLC -> Godot   (Input Registers)
@@ -94,6 +95,7 @@ const ST_ARROW_UP     := 9
 const ST_ARROW_DOWN   := 10
 const ST_CABIN_LIGHT  := 11
 const ST_ALARM        := 12
+const ST_RESCUE       := 13    # running on the battery rescue drive
 
 # =============================================================================
 # Enums  (DUT_Types.st)
@@ -105,7 +107,8 @@ const DIR_DOWN := 2
 enum State {
 	INIT = 0, HOMING = 1, IDLE = 2, DOOR_OPENING = 3, DOOR_OPEN = 4,
 	DOOR_CLOSING = 5, START = 6, TRAVEL = 7, DECEL = 8, LEVEL = 9,
-	ARRIVED = 10, FAULT = 11, FIRE = 12, INSPECTION = 13, PARK = 14
+	ARRIVED = 10, FAULT = 11, FIRE = 12, INSPECTION = 13, PARK = 14,
+	RESCUE = 15
 }
 
 enum DoorState { CLOSED = 0, OPENING = 1, OPEN = 2, CLOSING = 3, REOPEN = 4, FAULT = 5 }
@@ -120,7 +123,7 @@ const STATE_TEXT := {
 	0: "INIT", 1: "HOMING", 2: "IDLE", 3: "DOOR OPENING", 4: "DOOR OPEN",
 	5: "DOOR CLOSING", 6: "START", 7: "TRAVEL", 8: "DECEL",
 	9: "LEVELLING", 10: "ARRIVED", 11: "FAULT", 12: "FIRE",
-	13: "INSPECTION", 14: "PARK"
+	13: "INSPECTION", 14: "PARK", 15: "RESCUE (ARD)"
 }
 
 const FAULT_TEXT := {

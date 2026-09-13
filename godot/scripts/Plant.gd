@@ -30,6 +30,7 @@ var sw_overspeed := false         # mild drive runaway -> electrical trip
 var sw_severe_runaway := false    # runaway the controller cannot catch in time
 var sw_car_jammed := false        # car jammed / ropes slipping completely
 var sw_no_load_comp := false      # drive ignores the pre-torque reference
+var sw_mains_fail := false        # mains supply lost
 
 ## Safety gear: the wedges the governor pulls onto the guide rails once the car
 ## passes the mechanical trip speed. It is not a fault the panel can clear -
@@ -40,6 +41,7 @@ var safety_gear_set := false
 const BRAKE_RESPONSE_S := 0.15    # brake coil response time
 var _brake_t := 0.0
 var _torque_ramp := 0.0           # 0..1, how much pre-torque the drive has built
+var _ard_t := 0.0                 # time since the mains went
 var _a_loop := 0.0                # the speed loop's share of the acceleration
 
 # --- PLC commands (last received) -------------------------------------------
@@ -130,9 +132,18 @@ func step(dt: float) -> void:
 	else:
 		_brake_t = 0.0
 
+	# Losing the mains kills the drive outright. The rescue inverter has to pick
+	# up the load before anything can move again, and the changeover is not
+	# instant — contactors drop, the battery link comes up, the drive restarts.
+	if sw_mains_fail:
+		_ard_t += dt
+	else:
+		_ard_t = 0.0
+	var supply_up: bool = (not sw_mains_fail) or _ard_t >= LiftCfg.T_ARD_START
+
 	var v_target := 0.0
 	powered = c_drive_enable and not brake_engaged \
-			and not sw_estop and sw_safety_chain
+			and not sw_estop and sw_safety_chain and supply_up
 
 	# sw_overspeed: drive runaway — actual speed exceeds the reference and the
 	# governor must trip.
@@ -345,6 +356,7 @@ func build_registers(heartbeat: int) -> PackedInt32Array:
 	lim = LiftIo.set_bit(lim, LiftIo.LIM_SAFETY, sw_safety_chain and not sw_estop)
 	lim = LiftIo.set_bit(lim, LiftIo.LIM_GOVERNOR, sw_governor_ok)
 	lim = LiftIo.set_bit(lim, LiftIo.LIM_SAFETY_GEAR, safety_gear_set)
+	lim = LiftIo.set_bit(lim, LiftIo.LIM_MAINS_OK, not sw_mains_fail)
 	r[LiftIo.IN_LIMITS] = lim
 
 	# --- analogue ----------------------------------------------------------

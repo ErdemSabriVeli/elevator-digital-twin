@@ -34,6 +34,7 @@ func _initialize() -> void:
 	test_ride_quality()
 	test_load_compensation()
 	test_safety_gear()
+	test_mains_failure()
 
 	print("\n=== RESULT: %s ===" % ("ALL TESTS PASSED" if failures == 0
 			else "%d FAILED" % failures))
@@ -509,3 +510,77 @@ func test_safety_gear() -> void:
 	press_for("car_2")
 	var ran := step_until(func(): return cur_floor() == 2 and status(LiftIo.ST_DOOR_OPEN), 45.0)
 	check("and the lift runs again", ran, "(floor=%d)" % cur_floor())
+
+
+## Traps the car between floors, then cuts the mains.
+func strand_and_cut(start_floor: int, target: String, load: int) -> void:
+	reset(start_floor)
+	plant.load_kg = load
+	press_for(target)
+	step_until(func(): return absf(plant.speed_mms) > 800.0, 10.0)
+	plant.sw_mains_fail = true
+
+
+func test_mains_failure() -> void:
+	print("\n14) Mains failure: the rescue drive takes the car to a floor")
+
+	# A heavy car sinks, so the rescue drive should let gravity do the work and
+	# go DOWN, even though the passenger asked to go up.
+	strand_and_cut(1, "car_5", LiftCfg.LOAD_FULL_KG)
+	var p_cut := plant.pos_mm
+	step(1.0)
+	check("the drive drops out with the mains", absf(plant.speed_mms) < 1.0,
+			"(speed=%.1f mm/s)" % plant.speed_mms)
+	check("state is RESCUE", state() == LiftIo.State.RESCUE,
+			"(state=%s)" % LiftIo.STATE_TEXT[state()])
+	check("rescue status bit set", status(LiftIo.ST_RESCUE))
+
+	var landed := step_until(func(): return plant.door_pos > 0.95, 60.0)
+	check("reached a floor and opened the doors", landed,
+			"(floor=%d, door=%.0f%%)" % [cur_floor(), plant.door_pos * 100])
+	check("it went DOWN, the way the load was already pulling",
+			plant.pos_mm < p_cut, "(%.0f mm -> %.0f mm)" % [p_cut, plant.pos_mm])
+	check("it stopped at the FIRST floor it reached, not the call",
+			cur_floor() == 1, "(floor=%d, call was 5)" % cur_floor())
+
+	# The battery only runs the car at creep speed.
+	var peak := 0.0
+	var p2 := plant.pos_mm
+	step(3.0)
+	check("it stays put with the doors open", absf(plant.pos_mm - p2) < 2.0
+			and plant.door_pos > 0.95, "(door=%.0f%%)" % (plant.door_pos * 100))
+
+	# Mains back -> normal service.
+	plant.sw_mains_fail = false
+	step(1.0)
+	check("normal service resumes when the mains return",
+			state() != LiftIo.State.RESCUE and not status(LiftIo.ST_RESCUE),
+			"(state=%s)" % LiftIo.STATE_TEXT[state()])
+	press_for("car_3")
+	var ran := step_until(func(): return cur_floor() == 3 and status(LiftIo.ST_DOOR_OPEN), 45.0)
+	check("and the lift runs again", ran, "(floor=%d)" % cur_floor())
+
+	# An empty car is lighter than the counterweight, so it floats UP instead.
+	strand_and_cut(1, "car_5", 0)
+	var p_cut2 := plant.pos_mm
+	var landed2 := step_until(func(): return plant.door_pos > 0.95, 60.0)
+	check("an empty car is rescued UPWARDS", landed2 and plant.pos_mm > p_cut2,
+			"(%.0f mm -> %.0f mm, floor=%d)" % [p_cut2, plant.pos_mm, cur_floor()])
+
+	# Rescue speed: measured over the run above.
+	strand_and_cut(1, "car_5", LiftCfg.LOAD_FULL_KG)
+	var elapsed := 0.0
+	while elapsed < 40.0:
+		plant.apply_outputs(regs_out)
+		plant.step(DT)
+		hb = (hb + 1) % 32000
+		regs_out = plc.scan(plant.build_registers(hb), DT)
+		elapsed += DT
+		# Only while the rescue inverter is actually driving. Before the
+		# changeover the car is still coasting down from its mains-powered run.
+		if plant.powered:
+			peak = maxf(peak, absf(plant.speed_mms))
+		if plant.door_pos > 0.95:
+			break
+	check("it creeps on the battery", peak <= LiftCfg.V_ARD_MMS * 1.15,
+			"(peak %.0f mm/s, rescue speed %d)" % [peak, LiftCfg.V_ARD_MMS])

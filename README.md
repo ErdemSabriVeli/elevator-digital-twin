@@ -209,7 +209,19 @@ button halo stays lit while it rings.
 
 **Special modes:** fire (all calls cleared, car sent to the evacuation floor,
 doors held open), inspection (car-top hold-to-run, 300 mm/s), overload (start
-inhibit).
+inhibit), and:
+
+**Battery rescue (ARD) on mains failure.** Lose the mains and the drive drops
+out where it stands. After the changeover (3 s: contactors drop, the battery
+link comes up, the drive restarts) the rescue inverter runs the car to the
+*nearest* floor at 200 mm/s and opens the doors. It answers no calls — the only
+job is not to leave anyone shut in between floors, and it outranks fire recall
+because with no supply there is nothing to recall the car with.
+
+Which way it goes is decided by the load, not by the call: the battery is small,
+so the controller sends the car the way the imbalance is already pulling. A full
+car sinks to the floor below, an empty one floats up to the floor above. The
+car shows `E` and the doors stay open until the mains return.
 
 **Link supervision:** Godot sends a heartbeat every scan. If it stops changing
 for 2 s the PLC treats the safety chain as open and refuses to move the car.
@@ -353,6 +365,7 @@ detect it from its own inputs.
 | Rope slip | Encoder drifts from the true position | 6 — Encoder mismatch |
 | Light curtain | Door permanently obstructed | (not a fault — the door reopens) |
 | No load compensation | Drive ignores the pre-torque reference | (not a fault — the car rolls back at the start) |
+| Mains failure | Supply lost, then the battery changeover | (not a fault — the ARD runs the car to the nearest floor) |
 
 ---
 
@@ -424,13 +437,15 @@ indices in `PLC_PRG.st` (32 bits).
 godot --headless --path godot --script res://tests/sim_test.gd
 ```
 
-13 scenarios: car call and levelling, collective control, emergency stop +
+14 scenarios: car call and levelling, collective control, emergency stop +
 reset, overload start inhibit, fire evacuation (including a regression for the
 doors staying open), light curtain, travel timeout and recovery from a fault,
 brake feedback, overspeed, gong duration + alarm bell, ride quality (jerk and
 acceleration limits verified by measurement), load compensation (pre-torque sign, and
 the rollback that appears when it is switched off), and the safety gear (the
-governor gripping, the car held on the rails, and that RESET will not clear it).
+governor gripping, the car held on the rails, and that RESET will not clear it),
+and the battery rescue on mains failure (which way it chooses, that it stops at
+the first floor rather than the call, and that it creeps).
 
 ```bash
 godot --headless --path godot --script res://tests/modbus_test.gd

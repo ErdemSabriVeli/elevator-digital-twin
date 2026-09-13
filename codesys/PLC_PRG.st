@@ -66,6 +66,7 @@ GVL_IO.g_stIn.xBrakeFb        := F_GetBit(wLim, 5);
 GVL_IO.g_stIn.xSafetyChain    := F_GetBit(wLim, 6);
 GVL_IO.g_stIn.xGovernorOk     := F_GetBit(wLim, 7);
 GVL_IO.g_stIn.xSafetyGear     := F_GetBit(wLim, 8);
+GVL_IO.g_stIn.xMainsOk        := F_GetBit(wLim, 9);
 
 // Analogue values
 GVL_IO.g_stIn.diPosMM      := WORD_TO_DINT(GVL_IO.g_awMbIn[6]);
@@ -146,6 +147,7 @@ wTmp := F_SetBit(wTmp,  9, GVL_IO.g_stOut.eDirection = DIR_UP);
 wTmp := F_SetBit(wTmp, 10, GVL_IO.g_stOut.eDirection = DIR_DOWN);
 wTmp := F_SetBit(wTmp, 11, GVL_IO.g_stOut.xCabinLight);
 wTmp := F_SetBit(wTmp, 12, GVL_IO.g_stOut.xAlarm);
+wTmp := F_SetBit(wTmp, 13, GVL_IO.g_stOut.xRescue);
 GVL_IO.g_awMbOut[5] := wTmp;
 
 GVL_IO.g_awMbOut[6]  := INT_TO_WORD(GVL_IO.g_stOut.iCurrentFloor);

@@ -114,6 +114,7 @@ class Inputs extends RefCounted:
 	var safety_chain := true
 	var governor_ok := true
 	var safety_gear := false
+	var mains_ok := true
 
 	var estop := false
 	var overload := false
@@ -163,6 +164,7 @@ class Outputs extends RefCounted:
 	var out_of_service := false
 	var gong := false
 	var alarm := false
+	var rescue := false
 	var cabin_light := true
 	var door_timer_ms := 0
 	var pretorque_pmil := 0
@@ -504,7 +506,7 @@ class Motion extends RefCounted:
 	func scan(enable: bool, target_floor: int, pos_mm: int,
 			top_limit: bool, bot_limit: bool,
 			inspection: bool, insp_up: bool, insp_down: bool,
-			load_kg: int, dt: float) -> void:
+			load_kg: int, rescue: bool, dt: float) -> void:
 
 		# --- pre-torque (load compensation) ---------------------------------
 		# A gearless machine holds the car purely by friction on the sheave, so
@@ -602,6 +604,11 @@ class Motion extends RefCounted:
 				* (LiftCfg.V_RATED_MMS - LiftCfg.V_LEVEL_MMS)
 				/ (LiftCfg.DECEL_DIST_MM - LiftCfg.DOOR_ZONE_MM))
 			leveling = false
+
+		# The battery behind the rescue drive is small: it only ever moves the car
+		# at creep speed, and only as far as the next floor.
+		if rescue:
+			speed_sp = mini(speed_sp, LiftCfg.V_ARD_MMS)
 
 		# The drive is enabled first and the brake only opens once it has had
 		# time to build torque against the load. Lift the shoes before the
@@ -726,6 +733,7 @@ class LiftCore extends RefCounted:
 	var _t_alarm := Tof.new()
 	var _gong_arm := false
 	var _fire_parked := false
+	var _rescue_parked := false
 	var _hb_acc := 0.0
 	var _hb := 0
 	var _zone_mism := false
@@ -771,8 +779,14 @@ class LiftCore extends RefCounted:
 			state = LiftIo.State.FAULT
 		elif inp.inspection and state != LiftIo.State.INSPECTION and not safety.is_fault:
 			state = LiftIo.State.INSPECTION
-		elif (inp.fire_call and state != LiftIo.State.FIRE
+		elif (not inp.mains_ok and state != LiftIo.State.RESCUE
 				and not safety.is_fault and not inp.inspection):
+			# Mains lost. This outranks fire recall: with no supply there is
+			# nothing to recall the car with, and getting the passengers out of
+			# a stalled car is the more urgent job.
+			state = LiftIo.State.RESCUE
+		elif (inp.fire_call and state != LiftIo.State.FIRE
+				and not safety.is_fault and not inp.inspection and inp.mains_ok):
 			state = LiftIo.State.FIRE
 
 		match state:
@@ -908,6 +922,38 @@ class LiftCore extends RefCounted:
 					_fire_parked = false
 					state = LiftIo.State.IDLE
 
+			LiftIo.State.RESCUE:
+				# Mains failure: the rescue drive runs the car off a battery to
+				# the NEAREST floor and opens the doors. It answers no calls -
+				# the only job is not to leave anybody shut in between floors.
+				if not _rescue_parked:
+					# The battery is small, so go the way the load is already
+					# pulling: downhill costs the inverter almost nothing,
+					# uphill costs it everything. A car heavier than the
+					# counterweight sinks.
+					var net_kg := LiftCfg.CAR_EMPTY_KG + inp.load_kg - LiftCfg.CWT_KG
+					var f_below: int = maxi(0, inp.pos_mm / LiftCfg.FLOOR_HEIGHT_MM)
+					var f_above := f_below
+					if inp.pos_mm > f_below * LiftCfg.FLOOR_HEIGHT_MM:
+						f_above = mini(f_below + 1, LiftCfg.TOP_FLOOR)
+					if net_kg >= 0:
+						target_flr = f_below
+						dir = LiftIo.DIR_DOWN
+					else:
+						target_flr = f_above
+						dir = LiftIo.DIR_UP
+					door_req_close = true
+					if motion.at_target:
+						_rescue_parked = true
+				else:
+					# Parked: let them out and stay put until the mains return.
+					target_flr = -1
+					dir = LiftIo.DIR_NONE
+					door_req_open = true
+				if inp.mains_ok:
+					_rescue_parked = false
+					state = LiftIo.State.IDLE
+
 			LiftIo.State.INSPECTION:
 				target_flr = -1
 				dir = LiftIo.DIR_NONE
@@ -953,7 +999,8 @@ class LiftCore extends RefCounted:
 		# No overload check here: the start inhibit lives in DOOR_CLOSING.
 		motion.scan(safety.run_allow and door.is_closed and inp.door_locked and homed,
 				target_flr, inp.pos_mm, inp.top_limit, inp.bot_limit,
-				inp.inspection, inp.insp_up, inp.insp_down, inp.load_kg, dt)
+				inp.inspection, inp.insp_up, inp.insp_down, inp.load_kg,
+				state == LiftIo.State.RESCUE, dt)
 
 		# --- 8) outputs --------------------------------------------------------
 		out.drive_enable = motion.drive_enable
@@ -985,6 +1032,7 @@ class LiftCore extends RefCounted:
 		out.overload_lamp = inp.overload
 		out.fault_lamp = safety.is_fault
 		out.fire_mode = state == LiftIo.State.FIRE
+		out.rescue = state == LiftIo.State.RESCUE
 		out.insp_mode = state == LiftIo.State.INSPECTION
 		out.out_of_service = safety.is_fault or state == LiftIo.State.INSPECTION \
 				or state == LiftIo.State.FIRE
@@ -1041,6 +1089,7 @@ func scan(mb_in: PackedInt32Array, dt: float) -> PackedInt32Array:
 	_inp.safety_chain = LiftIo.get_bit(lim, LiftIo.LIM_SAFETY)
 	_inp.governor_ok = LiftIo.get_bit(lim, LiftIo.LIM_GOVERNOR)
 	_inp.safety_gear = LiftIo.get_bit(lim, LiftIo.LIM_SAFETY_GEAR)
+	_inp.mains_ok = LiftIo.get_bit(lim, LiftIo.LIM_MAINS_OK)
 
 	_inp.pos_mm = mb_in[LiftIo.IN_POS_MM]
 	_inp.act_speed_mms = mb_in[LiftIo.IN_SPEED_MMS]
@@ -1093,6 +1142,7 @@ func scan(mb_in: PackedInt32Array, dt: float) -> PackedInt32Array:
 	w = LiftIo.set_bit(w, LiftIo.ST_ARROW_DOWN, o.direction == LiftIo.DIR_DOWN)
 	w = LiftIo.set_bit(w, LiftIo.ST_CABIN_LIGHT, o.cabin_light)
 	w = LiftIo.set_bit(w, LiftIo.ST_ALARM, o.alarm)
+	w = LiftIo.set_bit(w, LiftIo.ST_RESCUE, o.rescue)
 	mb_out[LiftIo.OUT_STATUS] = w
 
 	mb_out[LiftIo.OUT_CUR_FLOOR] = o.current_floor

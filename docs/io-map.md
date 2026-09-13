@@ -95,6 +95,7 @@ FC16, then reads input registers 0–15 with FC04.
 | 4 | Fault lamp | 10 | Down arrow |
 | 5 | Fire mode | 11 | Car lighting |
 | — | | 12 | Alarm bell |
+| — | | 13 | Battery rescue (ARD) running |
 
 ---
 
@@ -109,7 +110,7 @@ FC16, then reads input registers 0–15 with FC04.
 | 4 | DOOR_OPEN — dwelling | 12 | FIRE |
 | 5 | DOOR_CLOSING | 13 | INSPECTION |
 | 6 | START | 14 | PARK |
-| 7 | TRAVEL | | |
+| 7 | TRAVEL | 15 | RESCUE — battery run (ARD) |
 
 ## Fault codes (`FAULT`)
 

@@ -30,7 +30,8 @@ TYPE E_LiftState :
     LS_FAULT        := 11,
     LS_FIRE         := 12,  // fire scenario
     LS_INSPECTION   := 13,  // inspection (car top control)
-    LS_PARK         := 14   // returning to the park floor
+    LS_PARK         := 14,  // returning to the park floor
+    LS_RESCUE       := 15   // mains lost: battery run to the nearest floor
 ) INT;
 END_TYPE
 
@@ -124,6 +125,7 @@ STRUCT
     xSafetyChain   : BOOL;   // TRUE = the chain is intact
     xGovernorOk    : BOOL;   // the overspeed governor is healthy
     xSafetyGear    : BOOL;   // safety gear wedged on the guide rails
+    xMainsOk       : BOOL;   // mains supply healthy
 
     // Mode selectors
     xEStop         : BOOL;
@@ -178,6 +180,7 @@ STRUCT
     xOutOfService : BOOL;
     xGong         : BOOL;
     xAlarm        : BOOL;   // alarm bell (car alarm button)
+    xRescue       : BOOL;   // running on the battery rescue drive
     xCabinLight   : BOOL;
     iDoorTimerMs  : INT;    // remaining dwell time [ms]
     iPreTorquePmil: INT;    // pre-torque reference, per mille of rated-load
