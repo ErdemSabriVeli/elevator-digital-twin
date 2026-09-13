@@ -279,7 +279,12 @@ func step(dt: float) -> void:
 	# ends and speeds up in the middle. That protects the mechanism and avoids
 	# slamming. The speed factor is modelled with a half-sine envelope over
 	# position.
-	if absf(speed_mms) < 100.0:
+	# The car door drives the landing door through a coupler vane that only
+	# engages the landing rollers inside the unlocking zone. Outside it the
+	# operator can turn all it likes and nothing moves — which is what stops a
+	# stranded car opening onto the shaft wall. This is a mechanism, not a rule
+	# the controller is trusted to follow, so it lives here in the plant.
+	if in_door_zone() and absf(speed_mms) < 100.0:
 		var env: float = 0.35 + 0.65 * sin(PI * clampf(door_pos, 0.0, 1.0))
 		if c_door_open:
 			door_pos = minf(1.0, door_pos + env * dt / LiftCfg.DOOR_OPEN_TIME)
@@ -413,6 +418,11 @@ func rope_stretch_mm() -> float:
 ## 3D model) has to use this instead.
 func car_pos_mm() -> float:
 	return pos_mm - rope_stretch_mm()
+
+
+## Is the car inside a landing's unlocking zone? Only there can the doors move.
+func in_door_zone() -> bool:
+	return absf(floor_offset_mm()) <= float(LiftCfg.DOOR_ZONE_MM)
 
 
 ## How far the car sits from the nearest floor level [mm]. Negative = low.

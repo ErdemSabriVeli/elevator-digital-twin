@@ -467,6 +467,7 @@ fbDoor(
     xOpenBtn     := stIn.xDoorOpenBtn,
     xCloseBtn    := stIn.xDoorCloseBtn,
     xOverload    := stIn.xOverload,
+    xDoorZone    := stIn.axFloorZone[iCurFloor],
     tDwell       := tDwellUse
 );
 

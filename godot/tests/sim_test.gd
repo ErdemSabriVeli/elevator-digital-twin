@@ -39,6 +39,7 @@ func _initialize() -> void:
 	test_levelling_accuracy()
 	test_brake_only_at_rest()
 	test_full_load_bypass()
+	test_door_zone_interlock()
 
 	print("\n=== RESULT: %s ===" % ("ALL TESTS PASSED" if failures == 0
 			else "%d FAILED" % failures))
@@ -780,3 +781,68 @@ func test_full_load_bypass() -> void:
 	var car_call := step_until(func(): return cur_floor() == 2 and status(LiftIo.ST_DOOR_OPEN), 45.0)
 	check("a car call is answered however full it is", car_call,
 			"(floor=%d, %d kg)" % [cur_floor(), plant.load_kg])
+
+
+func test_door_zone_interlock() -> void:
+	print("\n19) Unlocking zone: the doors cannot open between floors")
+	reset(0)
+
+	# Strand the car mid-shaft with an emergency stop, then let a trapped
+	# passenger lean on the door-open button. This is the interlock every real
+	# lift has: the coupler vane on the car door only engages the landing door
+	# rollers inside the zone, so there is nothing to open onto the shaft wall
+	# with. EN 81-20 5.3.9.
+	press_for("car_5")
+	step_until(func(): return plant.pos_mm > 4700.0, 20.0)
+	plant.sw_estop = true
+	step(2.0)
+	plant.sw_estop = false
+	step(0.5)
+	check("the car is stranded between floors", not plant.in_door_zone(),
+			"(pos=%.0f mm, %+.0f mm from the nearest sill)"
+					% [plant.pos_mm, plant.floor_offset_mm()])
+
+	for i in range(12):
+		press_for("door_open", 0.5)
+	check("leaning on DOOR OPEN does nothing there", plant.door_pos < 0.01,
+			"(door=%.0f%%)" % (plant.door_pos * 100))
+	check("no door timeout was raised either",
+			fault() == LiftIo.Fault.ESTOP,
+			"(code=%d %s)" % [fault(), LiftIo.FAULT_TEXT[fault()]])
+
+	# Recover: the car homes to a floor, and there the button works again.
+	press_for("reset")
+	var homed := step_until(func(): return plant.in_door_zone() and fault() == 0, 30.0)
+	check("it homes to a floor after the reset", homed,
+			"(pos=%.0f mm)" % plant.pos_mm)
+	press_for("door_open")
+	var opened := step_until(func(): return plant.door_pos > 0.95, 10.0)
+	check("and DOOR OPEN works once it is at a sill", opened,
+			"(door=%.0f%%)" % (plant.door_pos * 100))
+
+
+	# The controller gate above is the belt; this is the braces. The interlock
+	# is a mechanism, so the PLANT has to enforce it on its own — otherwise a
+	# controller that wrongly commands door-open mid-shaft would sail through
+	# the twin unnoticed, which defeats the point of having one.
+	var fake := PackedInt32Array()
+	fake.resize(LiftIo.REG_COUNT)
+	fake[LiftIo.OUT_DOOR_CMD] = LiftIo.set_bit(0, LiftIo.DOOR_OPEN_CMD, true)
+
+	var p := LiftPlant.new()
+	p.pos_mm = 2.5 * LiftCfg.FLOOR_HEIGHT_MM        # squarely between floors
+	for i in range(240):
+		p.apply_outputs(fake)
+		p.step(DT)
+	check("the plant refuses the command on its own, mid-shaft",
+			p.door_pos < 0.01,
+			"(door=%.0f%%, %+.0f mm from the nearest sill)"
+					% [p.door_pos * 100, p.floor_offset_mm()])
+
+	var q := LiftPlant.new()
+	q.pos_mm = 2.0 * LiftCfg.FLOOR_HEIGHT_MM        # at a sill
+	for i in range(240):
+		q.apply_outputs(fake)
+		q.step(DT)
+	check("and obeys the same command at a sill", q.door_pos > 0.95,
+			"(door=%.0f%%)" % (q.door_pos * 100))

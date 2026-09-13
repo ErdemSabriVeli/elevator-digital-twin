@@ -214,7 +214,15 @@ the compensation off in the fault-injection panel and the model does what an
 uncompensated lift does: **a full car sinks ~40 mm and an empty one is pulled
 up ~27 mm** at the instant of release, before the speed loop catches it.
 
-**Doors:** open → dwell (4 s on a car call, 3 s on a hall call) → close. The
+**Doors:** they can only move inside the **unlocking zone**. The coupler vane on
+the car door engages the landing door rollers over a ±60 mm window and nowhere
+else, so a car stranded between floors has nothing to open the landing door
+with, however hard a trapped passenger leans on the button (EN 81-20 5.3.9).
+That is modelled in the *plant*, not just checked by the controller: it is a
+mechanism, and a twin that only enforced it in the logic could not catch a
+controller that got it wrong.
+
+Open → dwell (4 s on a car call, 3 s on a hall call) → close. The
 light curtain or the door-open button reopens them; overload holds them open.
 After 15 s "nudge" (slow forced closing) kicks in. The panels are driven with a
 velocity envelope that slows near both ends and speeds up in the middle — a real
@@ -261,7 +269,8 @@ car sinks to the floor below, an empty one floats up to the floor above. The
 car shows `E` and the doors stay open until the mains return.
 
 **Link supervision:** Godot sends a heartbeat every scan. If it stops changing
-for 2 s the PLC treats the safety chain as open and refuses to move the car, and full-load bypass.
+for 2 s the PLC treats the safety chain as open and refuses to move the car, full-load bypass, and the unlocking-zone door
+interlock (checked against the plant directly, not only through the controller).
 
 ---
 
@@ -479,7 +488,7 @@ indices in `PLC_PRG.st` (32 bits).
 godot --headless --path godot --script res://tests/sim_test.gd
 ```
 
-18 scenarios: car call and levelling, collective control, emergency stop +
+19 scenarios: car call and levelling, collective control, emergency stop +
 reset, overload start inhibit, fire evacuation (including a regression for the
 doors staying open), light curtain, travel timeout and recovery from a fault,
 brake feedback, overspeed, gong duration + alarm bell, ride quality (jerk and

@@ -407,7 +407,7 @@ class DoorCtrl extends RefCounted:
 
 	func scan(enable: bool, req_open: bool, req_close: bool,
 			open_limit: bool, close_limit: bool, obstruction: bool,
-			open_btn: bool, close_btn: bool, overload: bool,
+			open_btn: bool, close_btn: bool, overload: bool, door_zone: bool,
 			dwell: float, dt: float) -> void:
 
 		open_out = false
@@ -428,7 +428,12 @@ class DoorCtrl extends RefCounted:
 				_t_dwell.reset()
 				_t_nudge.reset()
 				nudge = false
-				if req_open or open_btn:
+				# Outside the unlocking zone the doors stay shut, however hard
+				# the button is leaned on. The coupler vane on the car door only
+				# engages the landing door rollers inside the zone - a stranded
+				# car cannot open onto the shaft wall, and that is not a policy
+				# but a mechanism. EN 81-20 5.3.9.
+				if (req_open or open_btn) and door_zone:
 					state = LiftIo.DoorState.OPENING
 				elif not close_limit and req_close:
 					state = LiftIo.DoorState.CLOSING
@@ -1110,7 +1115,8 @@ class LiftCore extends RefCounted:
 
 		door.scan(not inp.estop and inp.safety_chain, door_req_open, door_req_close,
 				inp.door_open_limit, inp.door_close_limit, inp.obstruction,
-				inp.door_open_btn, inp.door_close_btn, inp.overload, dwell, dt)
+				inp.door_open_btn, inp.door_close_btn, inp.overload,
+				inp.floor_zone[cur_floor], dwell, dt)
 
 		# --- 7) motion ---------------------------------------------------------
 		# No overload check here: the start inhibit lives in DOOR_CLOSING.

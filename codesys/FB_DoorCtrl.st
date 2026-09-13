@@ -19,6 +19,7 @@ VAR_INPUT
     xOpenBtn      : BOOL;
     xCloseBtn     : BOOL;
     xOverload     : BOOL;
+    xDoorZone     : BOOL;    // car is inside the unlocking zone
     tDwell        : TIME := T#4S;
 END_VAR
 VAR_OUTPUT
@@ -65,7 +66,12 @@ CASE eState OF
         tonDwell(IN := FALSE);
         tonNudge(IN := FALSE);
         xNudge := FALSE;
-        IF xReqOpen OR xOpenBtn THEN
+        (* Outside the unlocking zone the doors stay shut, however hard the
+           button is leaned on. The coupler vane on the car door only engages
+           the landing door rollers inside the zone - a stranded car cannot
+           open onto the shaft wall, and that is not a policy but a mechanism.
+           EN 81-20 5.3.9. *)
+        IF (xReqOpen OR xOpenBtn) AND xDoorZone THEN
             eState := DS_OPENING;
         ELSIF NOT xCloseLimit AND xReqClose THEN
             eState := DS_CLOSING;      // not fully closed, try again
