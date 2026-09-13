@@ -32,7 +32,8 @@ TYPE E_LiftState :
     LS_INSPECTION   := 13,  // inspection (car top control)
     LS_PARK         := 14,  // returning to the park floor
     LS_RESCUE       := 15,  // mains lost: battery run to the nearest floor
-    LS_RELEVEL      := 16   // creeping back to floor level with doors open
+    LS_RELEVEL      := 16,  // creeping back to floor level with doors open
+    LS_FIRE_PH2     := 17   // firefighter operating the car from inside
 ) INT;
 END_TYPE
 
@@ -143,6 +144,8 @@ STRUCT
     xInspection    : BOOL;
     xInspUp        : BOOL;
     xInspDown      : BOOL;
+    xIndependent   : BOOL;   // attendant key switch in the car
+    xFirePh2       : BOOL;   // firefighter key switch in the car
     xDriveReady    : BOOL;
     xDriveFault    : BOOL;
 END_STRUCT
@@ -190,6 +193,7 @@ STRUCT
     xAlarm        : BOOL;   // alarm bell (car alarm button)
     xRescue       : BOOL;   // running on the battery rescue drive
     xRelevel      : BOOL;   // re-levelling at the floor with the doors open
+    xIndependent  : BOOL;   // independent (attendant) service
     xCabinLight   : BOOL;
     iDoorTimerMs  : INT;    // remaining dwell time [ms]
     iPreTorquePmil: INT;    // pre-torque reference, per mille of rated-load

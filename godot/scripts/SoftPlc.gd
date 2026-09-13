@@ -127,6 +127,8 @@ class Inputs extends RefCounted:
 	var inspection := false
 	var insp_up := false
 	var insp_down := false
+	var independent := false      # attendant key switch in the car
+	var fire_ph2 := false         # firefighter key switch in the car
 	var drive_ready := true
 	var drive_fault := false
 
@@ -170,6 +172,7 @@ class Outputs extends RefCounted:
 	var alarm := false
 	var rescue := false
 	var relevel := false
+	var independent := false
 	var cabin_light := true
 	var door_timer_ms := 0
 	var pretorque_pmil := 0
@@ -410,7 +413,7 @@ class DoorCtrl extends RefCounted:
 	func scan(enable: bool, req_open: bool, req_close: bool,
 			open_limit: bool, close_limit: bool, obstruction: bool,
 			open_btn: bool, close_btn: bool, overload: bool, door_zone: bool,
-			dwell: float, dt: float) -> void:
+			const_press: bool, dwell: float, dt: float) -> void:
 
 		open_out = false
 		close_out = false
@@ -443,7 +446,14 @@ class DoorCtrl extends RefCounted:
 			LiftIo.DoorState.OPENING:
 				open_out = true
 				_t_move.update(true, LiftCfg.T_DOOR_MOVE_MAX, dt)
-				if open_limit:
+				# Under constant pressure the door only travels while the button
+				# is held. Let go half way and it goes straight back - the
+				# firefighter keeps a hand on it so the door can never be left
+				# open on a floor they have not chosen to be on. EN 81-72.
+				if const_press and not open_btn and not open_limit:
+					_t_move.reset()
+					state = LiftIo.DoorState.CLOSING
+				elif open_limit:
 					_t_move.reset()
 					state = LiftIo.DoorState.OPEN
 				elif _t_move.q:
@@ -458,7 +468,12 @@ class DoorCtrl extends RefCounted:
 				remain_ms = int(maxf(0.0, dwell - _t_dwell.et) * 1000.0)
 				dwell_done = _t_dwell.q
 
-				if close_btn and not obstruction and not overload and not req_open:
+				# Under constant pressure nothing shuts the door but the button.
+				if const_press:
+					if close_btn:
+						state = LiftIo.DoorState.CLOSING
+						_t_dwell.reset()
+				elif close_btn and not obstruction and not overload and not req_open:
 					state = LiftIo.DoorState.CLOSING
 					_t_dwell.reset()
 				elif _t_dwell.q and req_close:
@@ -472,7 +487,20 @@ class DoorCtrl extends RefCounted:
 				close_out = true
 				_t_move.update(true, LiftCfg.T_DOOR_MOVE_MAX, dt)
 				remain_ms = 0
-				if open_btn or req_open or overload or (obstruction and not nudge):
+				# Under constant pressure the door closes only while the button
+				# is held, and NOTHING else reopens it — not the light curtain,
+				# not an overload. A firefighter may have to close on smoke or
+				# debris, which is exactly the case the curtain would veto.
+				if const_press:
+					if not close_btn and not close_limit:
+						_t_move.reset()
+						state = LiftIo.DoorState.REOPEN
+					elif close_limit:
+						_t_move.reset()
+						_t_nudge.reset()
+						nudge = false
+						state = LiftIo.DoorState.CLOSED
+				elif open_btn or req_open or overload or (obstruction and not nudge):
 					_t_move.reset()
 					state = LiftIo.DoorState.REOPEN
 				elif close_limit:
@@ -487,7 +515,11 @@ class DoorCtrl extends RefCounted:
 
 			LiftIo.DoorState.REOPEN:
 				open_out = true
-				if open_limit:
+				# Under constant pressure a re-open is only the button being let
+				# go, so pressing it again resumes closing from where it stopped.
+				if const_press and close_btn:
+					state = LiftIo.DoorState.CLOSING
+				elif open_limit:
 					state = LiftIo.DoorState.OPEN
 					_t_dwell.reset()
 
@@ -910,14 +942,30 @@ class LiftCore extends RefCounted:
 		_zone_mism = (_zone_floor >= 0 and _zone_floor != cur_floor) or _t_no_vane.q
 
 		# --- 3) call registration ---------------------------------------------
-		var clear_calls: bool = inp.fire_call or inp.inspection or safety.is_fault
+		# Independent (attendant) service: a key switch in the car takes it out of
+		# the landing-call system entirely. It answers only what is pressed inside,
+		# and the doors stay open until somebody presses CLOSE — that is the whole
+		# point, an attendant holding a floor while a bed or a trolley is loaded.
+		var indep: bool = (inp.independent and not inp.inspection
+				and not inp.fire_call and not safety.is_fault)
+
+		# Firefighter Phase II, only after the Phase I recall has parked the car.
+		var ph2 := state == LiftIo.State.FIRE_PH2
+
+		# Phase I clears the calls and drives the car home. Phase II is the
+		# opposite: the firefighter's car calls are then the only thing that works.
+		var clear_calls: bool = ((inp.fire_call and not ph2)
+				or inp.inspection or safety.is_fault)
 		calls.scan(inp.calls, clear_calls,
-				not inp.inspection and not safety.is_fault and not inp.fire_call)
+				not inp.inspection and not safety.is_fault
+				and (not inp.fire_call or ph2))
 
 		# --- 4) target selection ----------------------------------------------
 		# A car at 80 % of rated has no room for the people waiting at a landing,
-		# so it drives past them. Their call stays registered and lit.
-		disp.bypass_hall = inp.load_kg >= LiftCfg.LOAD_BYPASS_KG
+		# so it drives past them. Their call stays registered and lit. A car on
+		# independent or firefighter service ignores them for a different reason:
+		# they are not its job at all.
+		disp.bypass_hall = inp.load_kg >= LiftCfg.LOAD_BYPASS_KG or indep or ph2
 		disp.scan(cur_floor, dir)
 
 		# --- 5) the main state machine ----------------------------------------
@@ -936,7 +984,11 @@ class LiftCore extends RefCounted:
 			# a stalled car is the more urgent job.
 			state = LiftIo.State.RESCUE
 		elif (inp.fire_call and state != LiftIo.State.FIRE
+				and state != LiftIo.State.FIRE_PH2
 				and not safety.is_fault and not inp.inspection and inp.mains_ok):
+			# Phase II is part of fire service, not an escape from it - without the
+			# second test this would pull the firefighter back into the Phase I
+			# recall every scan.
 			state = LiftIo.State.FIRE
 
 		match state:
@@ -1036,7 +1088,9 @@ class LiftCore extends RefCounted:
 					state = LiftIo.State.DOOR_OPEN
 
 			LiftIo.State.DOOR_OPEN:
-				door_req_close = disp.has_job or door.dwell_done
+				# On independent service the dwell never expires the door shut —
+				# only the CLOSE button does.
+				door_req_close = (disp.has_job or door.dwell_done) and not indep
 				if door.state == LiftIo.DoorState.CLOSED:
 					state = LiftIo.State.IDLE
 					dir = disp.new_dir
@@ -1082,6 +1136,29 @@ class LiftCore extends RefCounted:
 					target_flr = -1
 					dir = LiftIo.DIR_NONE
 					door_req_open = true
+				# Phase II: once the recall has parked the car, a second key switch
+				# inside hands it to the firefighter. EN 81-72.
+				if _fire_parked and inp.fire_ph2:
+					state = LiftIo.State.FIRE_PH2
+				if not inp.fire_call:
+					_fire_parked = false
+					state = LiftIo.State.IDLE
+
+			LiftIo.State.FIRE_PH2:
+				# The car answers car calls only, and every door movement is under
+				# constant pressure. Nothing here is automatic, which is the point:
+				# the firefighter decides when a door opens and can abandon the
+				# opening half way if the landing is not survivable.
+				if disp.has_job:
+					target_flr = disp.target
+					dir = disp.new_dir
+				else:
+					target_flr = -1
+					dir = LiftIo.DIR_NONE
+				if motion.at_target and target_flr >= 0:
+					serve_done = true
+				if not inp.fire_ph2:
+					state = LiftIo.State.FIRE
 				if not inp.fire_call:
 					_fire_parked = false
 					state = LiftIo.State.IDLE
@@ -1158,7 +1235,7 @@ class LiftCore extends RefCounted:
 		door.scan(not inp.estop and inp.safety_chain, door_req_open, door_req_close,
 				inp.door_open_limit, inp.door_close_limit, inp.obstruction,
 				inp.door_open_btn, inp.door_close_btn, inp.overload,
-				inp.floor_zone[cur_floor], dwell, dt)
+				inp.floor_zone[cur_floor], ph2, dwell, dt)
 
 		# --- 7) motion ---------------------------------------------------------
 		# No overload check here: the start inhibit lives in DOOR_CLOSING.
@@ -1206,6 +1283,7 @@ class LiftCore extends RefCounted:
 		out.fire_mode = state == LiftIo.State.FIRE
 		out.rescue = state == LiftIo.State.RESCUE
 		out.relevel = state == LiftIo.State.RELEVEL
+		out.independent = indep
 		out.insp_mode = state == LiftIo.State.INSPECTION
 		out.out_of_service = safety.is_fault or state == LiftIo.State.INSPECTION \
 				or state == LiftIo.State.FIRE
@@ -1252,6 +1330,8 @@ func scan(mb_in: PackedInt32Array, dt: float) -> PackedInt32Array:
 	_inp.drive_fault = LiftIo.get_bit(cmd, LiftIo.CMD_DRIVE_FAULT)
 	_inp.insp_up = LiftIo.get_bit(cmd, LiftIo.CMD_INSP_UP)
 	_inp.insp_down = LiftIo.get_bit(cmd, LiftIo.CMD_INSP_DOWN)
+	_inp.independent = LiftIo.get_bit(cmd, LiftIo.CMD_INDEPENDENT)
+	_inp.fire_ph2 = LiftIo.get_bit(cmd, LiftIo.CMD_FIRE_PH2)
 
 	_inp.top_limit = LiftIo.get_bit(lim, LiftIo.LIM_TOP)
 	_inp.bot_limit = LiftIo.get_bit(lim, LiftIo.LIM_BOTTOM)
@@ -1321,6 +1401,7 @@ func scan(mb_in: PackedInt32Array, dt: float) -> PackedInt32Array:
 	w = LiftIo.set_bit(w, LiftIo.ST_ALARM, o.alarm)
 	w = LiftIo.set_bit(w, LiftIo.ST_RESCUE, o.rescue)
 	w = LiftIo.set_bit(w, LiftIo.ST_RELEVEL, o.relevel)
+	w = LiftIo.set_bit(w, LiftIo.ST_INDEPENDENT, o.independent)
 	mb_out[LiftIo.OUT_STATUS] = w
 
 	mb_out[LiftIo.OUT_CUR_FLOOR] = o.current_floor

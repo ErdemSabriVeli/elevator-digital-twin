@@ -37,6 +37,8 @@ const CMD_DRIVE_READY := 9
 const CMD_DRIVE_FAULT := 10
 const CMD_INSP_UP     := 11
 const CMD_INSP_DOWN   := 12
+const CMD_INDEPENDENT := 13    # attendant key switch in the car
+const CMD_FIRE_PH2    := 14    # firefighter key switch in the car
 
 # IN_LIMITS bits
 const LIM_TOP         := 0
@@ -104,6 +106,7 @@ const ST_CABIN_LIGHT  := 11
 const ST_ALARM        := 12
 const ST_RESCUE       := 13    # running on the battery rescue drive
 const ST_RELEVEL      := 14    # re-levelling at the floor, doors open
+const ST_INDEPENDENT  := 15    # independent (attendant) service
 
 # =============================================================================
 # Enums  (DUT_Types.st)
@@ -116,7 +119,7 @@ enum State {
 	INIT = 0, HOMING = 1, IDLE = 2, DOOR_OPENING = 3, DOOR_OPEN = 4,
 	DOOR_CLOSING = 5, START = 6, TRAVEL = 7, DECEL = 8, LEVEL = 9,
 	ARRIVED = 10, FAULT = 11, FIRE = 12, INSPECTION = 13, PARK = 14,
-	RESCUE = 15, RELEVEL = 16
+	RESCUE = 15, RELEVEL = 16, FIRE_PH2 = 17
 }
 
 enum DoorState { CLOSED = 0, OPENING = 1, OPEN = 2, CLOSING = 3, REOPEN = 4, FAULT = 5 }
@@ -131,7 +134,8 @@ const STATE_TEXT := {
 	0: "INIT", 1: "HOMING", 2: "IDLE", 3: "DOOR OPENING", 4: "DOOR OPEN",
 	5: "DOOR CLOSING", 6: "START", 7: "TRAVEL", 8: "DECEL",
 	9: "LEVELLING", 10: "ARRIVED", 11: "FAULT", 12: "FIRE",
-	13: "INSPECTION", 14: "PARK", 15: "RESCUE (ARD)", 16: "RE-LEVELLING"
+	13: "INSPECTION", 14: "PARK", 15: "RESCUE (ARD)", 16: "RE-LEVELLING",
+	17: "FIREFIGHTER PHASE II"
 }
 
 const FAULT_TEXT := {

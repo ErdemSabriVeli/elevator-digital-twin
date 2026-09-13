@@ -36,6 +36,8 @@ var sw_mains_fail := false        # mains supply lost
 var sw_brake_creep := false       # worn brake: a held car sinks slowly
 var sw_vane_dead := false         # the car's floor-zone sensor has failed
 var sw_nts_dead := false          # terminal slowdown cams not reporting
+var sw_independent := false       # attendant key switch in the car
+var sw_fire_ph2 := false          # firefighter key switch in the car
 
 ## Set when the car reaches the buffer at the end of the shaft. The buffer is
 ## the last thing between the car and the pit floor or the slab, so touching it
@@ -364,6 +366,8 @@ func build_registers(heartbeat: int) -> PackedInt32Array:
 	cmd = LiftIo.set_bit(cmd, LiftIo.CMD_DRIVE_FAULT, sw_drive_fault)
 	cmd = LiftIo.set_bit(cmd, LiftIo.CMD_INSP_UP, is_pressed("insp_up"))
 	cmd = LiftIo.set_bit(cmd, LiftIo.CMD_INSP_DOWN, is_pressed("insp_down"))
+	cmd = LiftIo.set_bit(cmd, LiftIo.CMD_INDEPENDENT, sw_independent)
+	cmd = LiftIo.set_bit(cmd, LiftIo.CMD_FIRE_PH2, sw_fire_ph2)
 	r[LiftIo.IN_CMD] = cmd
 
 	# --- floor (door zone) sensors -----------------------------------------

@@ -211,6 +211,7 @@ func test_bit_map() -> void:
 		"xAlarmBtn": "CMD_ALARM", "xEStop": "CMD_ESTOP",
 		"xOverload": "CMD_OVERLOAD", "xFireCall": "CMD_FIRE",
 		"xInspection": "CMD_INSPECTION", "xFaultReset": "CMD_RESET",
+		"xIndependent": "CMD_INDEPENDENT", "xFirePh2": "CMD_FIRE_PH2",
 		"xObstruction": "CMD_OBSTRUCTION", "xDriveReady": "CMD_DRIVE_READY",
 		"xDriveFault": "CMD_DRIVE_FAULT", "xInspUp": "CMD_INSP_UP",
 		"xInspDown": "CMD_INSP_DOWN",
@@ -234,6 +235,7 @@ func test_bit_map() -> void:
 		"xInspMode": "ST_INSPECTION", "xOutOfService": "ST_OUT_OF_SVC",
 		"xGong": "ST_GONG", "xCabinLight": "ST_CABIN_LIGHT",
 		"xAlarm": "ST_ALARM", "xRescue": "ST_RESCUE",
+		"xRelevel": "ST_RELEVEL", "xIndependent": "ST_INDEPENDENT",
 	}
 	var re := RegEx.new()
 	re.compile("F_SetBit\\(wTmp,\\s*(\\d+),\\s*GVL_IO\\.g_stOut\\.(\\w+)\\)")

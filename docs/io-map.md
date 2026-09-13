@@ -46,7 +46,8 @@ FC16, then reads input registers 0–15 with FC04.
 | 3 | Emergency stop | 10 | Drive fault |
 | 4 | Overload | 11 | Inspection UP |
 | 5 | Fire call | 12 | Inspection DOWN |
-| 6 | Inspection mode | | |
+| 6 | Inspection mode | 13 | Independent service key |
+| | | 14 | Firefighter Phase II key |
 
 ### `LIMITS` (register 5) bits
 
@@ -102,6 +103,7 @@ FC16, then reads input registers 0–15 with FC04.
 | — | | 12 | Alarm bell |
 | — | | 13 | Battery rescue (ARD) running |
 | — | | 14 | Re-levelling at the floor |
+| — | | 15 | Independent service |
 
 ---
 
@@ -118,6 +120,7 @@ FC16, then reads input registers 0–15 with FC04.
 | 6 | START | 14 | PARK |
 | 7 | TRAVEL | 15 | RESCUE — battery run (ARD) |
 | | | 16 | RELEVEL — creeping back to the sill |
+| | | 17 | FIRE_PH2 — firefighter operating the car |
 
 ## Fault codes (`FAULT`)
 

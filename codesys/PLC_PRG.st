@@ -55,6 +55,8 @@ GVL_IO.g_stIn.xDriveReady   := F_GetBit(wCmd,  9);
 GVL_IO.g_stIn.xDriveFault   := F_GetBit(wCmd, 10);
 GVL_IO.g_stIn.xInspUp       := F_GetBit(wCmd, 11);
 GVL_IO.g_stIn.xInspDown     := F_GetBit(wCmd, 12);
+GVL_IO.g_stIn.xIndependent  := F_GetBit(wCmd, 13);
+GVL_IO.g_stIn.xFirePh2      := F_GetBit(wCmd, 14);
 
 // LIMIT_BITS
 GVL_IO.g_stIn.xTopLimit       := F_GetBit(wLim, 0);
@@ -156,6 +158,7 @@ wTmp := F_SetBit(wTmp, 11, GVL_IO.g_stOut.xCabinLight);
 wTmp := F_SetBit(wTmp, 12, GVL_IO.g_stOut.xAlarm);
 wTmp := F_SetBit(wTmp, 13, GVL_IO.g_stOut.xRescue);
 wTmp := F_SetBit(wTmp, 14, GVL_IO.g_stOut.xRelevel);
+wTmp := F_SetBit(wTmp, 15, GVL_IO.g_stOut.xIndependent);
 GVL_IO.g_awMbOut[5] := wTmp;
 
 GVL_IO.g_awMbOut[6]  := INT_TO_WORD(GVL_IO.g_stOut.iCurrentFloor);

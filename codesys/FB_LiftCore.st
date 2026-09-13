@@ -50,6 +50,8 @@ VAR
     xFireParked : BOOL;   // reached the recall floor (the fire mode latch)
     xRescueParked : BOOL; // the rescue run has reached a floor
     xBypassHall : BOOL;   // car full: landing calls are not this car's job
+    xIndep      : BOOL;   // independent (attendant) service in force
+    xPh2        : BOOL;   // firefighter operating the car from inside
     tonNoVane   : TON;    // stopped at a floor with no vane under the car
     xNoVane     : BOOL;
     diPosOffset : DINT;   // encoder -> car position trim, set at each floor
@@ -126,10 +128,8 @@ iCurFloor := fbMotion.FloorFromPos(diPosCorr);
 (* Two ways the position can be wrong, and trimming only hides the small one.
    Either a vane says one floor while the count says another, or the car is
    stopped where the count says a floor is and there is no plate underneath at
-   all - which covers both a count drifted past trimming and a failed sensor. *)
-(* Stopped, the count says this is a floor, and there is no plate underneath.
-   Either the count has drifted past trimming or the sensor reading the vanes
-   has failed - and the controller cannot tell which, so it must not guess. *)
+   all. The second covers both a count drifted past trimming and a failed
+   sensor - and the controller cannot tell which, so it must not guess. *)
 xNoVane := xHomed
            AND (ABS(stIn.iActSpeedMMS) <= C_V_ZERO_MMS)
            AND (iZoneFloor < 0)
@@ -141,12 +141,25 @@ xZoneMism := ((iZoneFloor >= 0) AND (iZoneFloor <> iCurFloor)) OR tonNoVane.Q;
 // ===========================================================================
 // 3) CALL REGISTRATION
 // ===========================================================================
-xClearCalls := stIn.xFireCall OR stIn.xInspection OR fbSafety.xFault;
+(* Independent (attendant) service: a key switch in the car takes it out of the
+   landing-call system entirely. It answers only what is pressed inside, and the
+   doors stay open until somebody presses CLOSE - that is the whole point, an
+   attendant holding a floor while a bed or a trolley is loaded. *)
+xIndep := stIn.xIndependent AND NOT stIn.xInspection AND NOT stIn.xFireCall
+          AND NOT fbSafety.xFault;
+
+(* Firefighter Phase II, only after the Phase I recall has parked the car. *)
+xPh2 := (eState = LS_FIRE_PH2);
+
+(* Phase I clears the calls and drives the car home. Phase II is the opposite:
+   the firefighter's car calls are then the only thing that works at all. *)
+xClearCalls := (stIn.xFireCall AND NOT xPh2) OR stIn.xInspection OR fbSafety.xFault;
 
 fbCalls(
     stBtn     := stIn.stCalls,
     xClearAll := xClearCalls,
-    xEnable   := NOT stIn.xInspection AND NOT fbSafety.xFault AND NOT stIn.xFireCall,
+    xEnable   := NOT stIn.xInspection AND NOT fbSafety.xFault
+                 AND (NOT stIn.xFireCall OR xPh2),
     stLatch   := stLatch
 );
 
@@ -154,8 +167,10 @@ fbCalls(
 // 4) TARGET SELECTION
 // ===========================================================================
 (* A car at 80% of rated has no room for the people waiting at a landing, so it
-   drives past them. Their call stays registered and lit. *)
-xBypassHall := stIn.iLoadKg >= C_LOAD_BYPASS_KG;
+   drives past them. Their call stays registered and lit. A car on independent
+   or firefighter service ignores them for a different reason: they are not its
+   job at all. *)
+xBypassHall := (stIn.iLoadKg >= C_LOAD_BYPASS_KG) OR xIndep OR xPh2;
 
 fbDisp(
     iCurrentFloor := iCurFloor,
@@ -182,8 +197,11 @@ ELSIF NOT stIn.xMainsOk AND (eState <> LS_RESCUE) AND NOT fbSafety.xFault
        to recall the car with, and getting the passengers out of a stalled car
        is the more urgent job. *)
     eState := LS_RESCUE;
-ELSIF stIn.xFireCall AND (eState <> LS_FIRE) AND NOT fbSafety.xFault
-      AND NOT stIn.xInspection AND stIn.xMainsOk THEN
+ELSIF stIn.xFireCall AND (eState <> LS_FIRE) AND (eState <> LS_FIRE_PH2)
+      AND NOT fbSafety.xFault AND NOT stIn.xInspection AND stIn.xMainsOk THEN
+    (* Phase II is part of fire service, not an escape from it - without the
+       second test this would pull the firefighter back into the Phase I recall
+       every scan. *)
     eState := LS_FIRE;
 END_IF
 
@@ -323,8 +341,9 @@ CASE eState OF
 
     // -----------------------------------------------------------------------
     LS_DOOR_OPEN:
-        // Allow closing if there is new work
-        xDoorReqCls := fbDisp.xHasJob OR fbDoor.xDwellDone;
+        // Allow closing if there is new work. On independent service the dwell
+        // never expires the door shut - only the CLOSE button does.
+        xDoorReqCls := (fbDisp.xHasJob OR fbDoor.xDwellDone) AND NOT xIndep;
         IF fbDoor.eState = DS_CLOSED THEN
             eState := LS_IDLE;
             eDir   := fbDisp.eNewDir;
@@ -380,6 +399,38 @@ CASE eState OF
             xDoorReqOpen := TRUE;
         END_IF
 
+        (* Phase II: once the recall has parked the car, a second key switch
+           inside hands it to the firefighter. EN 81-72. *)
+        IF xFireParked AND stIn.xFirePh2 THEN
+            eState := LS_FIRE_PH2;
+        END_IF
+
+        IF NOT stIn.xFireCall THEN
+            xFireParked := FALSE;
+            eState := LS_IDLE;
+        END_IF
+
+    // -----------------------------------------------------------------------
+    // Firefighter Phase II. The car answers car calls only, and every door
+    // movement is under constant pressure - see FB_DoorCtrl. Nothing here is
+    // automatic, which is the point: the firefighter decides when a door opens
+    // and can abandon the opening half way if the landing is not survivable.
+    LS_FIRE_PH2:
+        IF fbDisp.xHasJob THEN
+            iTargetFlr := fbDisp.iTarget;
+            eDir       := fbDisp.eNewDir;
+        ELSE
+            iTargetFlr := -1;
+            eDir       := DIR_NONE;
+        END_IF
+
+        IF fbMotion.xAtTarget AND (iTargetFlr >= 0) THEN
+            xServeDone := TRUE;
+        END_IF
+
+        IF NOT stIn.xFirePh2 THEN
+            eState := LS_FIRE;
+        END_IF
         IF NOT stIn.xFireCall THEN
             xFireParked := FALSE;
             eState := LS_IDLE;
@@ -499,6 +550,7 @@ fbDoor(
     xCloseBtn    := stIn.xDoorCloseBtn,
     xOverload    := stIn.xOverload,
     xDoorZone    := stIn.axFloorZone[iCurFloor],
+    xConstPress  := xPh2,
     tDwell       := tDwellUse
 );
 
@@ -566,6 +618,7 @@ stOut.xFaultLamp    := fbSafety.xFault;
 stOut.xFireMode     := (eState = LS_FIRE);
 stOut.xRescue       := (eState = LS_RESCUE);
 stOut.xRelevel      := (eState = LS_RELEVEL);
+stOut.xIndependent  := xIndep;
 stOut.xInspMode     := (eState = LS_INSPECTION);
 stOut.xOutOfService := fbSafety.xFault OR (eState = LS_INSPECTION) OR (eState = LS_FIRE);
 stOut.xCabinLight   := NOT fbSafety.xFault OR (fbSafety.eFault <> FLT_SAFETY_CHAIN);

@@ -282,6 +282,22 @@ button halo stays lit while it rings.
 doors held open), inspection (car-top hold-to-run, 300 mm/s), overload (start
 inhibit at 110 % of rated), and:
 
+**Firefighter Phase II** (EN 81-72). Phase I is the recall above. Once it has
+parked the car, a second key switch *inside* the car hands it to the
+firefighter: it answers car calls only, and every door movement is under
+**constant pressure**. Hold OPEN and the door opens; let go half way and it goes
+straight back. Hold CLOSE to shut it — and nothing else reopens it, not the light
+curtain and not an overload, because a firefighter may have to close on smoke or
+debris, which is exactly what the curtain would otherwise veto. Nothing opens
+automatically on arrival either: the firefighter decides whether a landing is
+survivable before the door moves.
+
+**Independent (attendant) service.** A key switch in the car takes it out of
+the landing-call system. It answers only what is pressed inside, and the doors
+stay open until somebody presses CLOSE — an attendant holding a floor while a bed
+or a trolley goes in. Landing calls stay registered and are served once the key
+is turned back.
+
 **Battery rescue (ARD) on mains failure.** Lose the mains and the drive drops
 out where it stands. After the changeover (3 s: contactors drop, the battery
 link comes up, the drive restarts) the rescue inverter runs the car to the
@@ -299,7 +315,9 @@ for 2 s the PLC treats the safety chain as open and refuses to move the car, ful
 interlock (checked against the plant directly, not only through the controller),
 and encoder drift being trimmed against the vanes — including that gross slip
 and a dead sensor are still reported rather than absorbed — and terminal
-slowdown, measured against the same fault with the cams disabled.
+slowdown, measured against the same fault with the cams disabled — and
+independent service and firefighter Phase II, including that letting go of a
+constant-pressure button sends the door back.
 
 ---
 
@@ -440,6 +458,8 @@ detect it from its own inputs.
 | Rope slip | The sheave turns and the count rises, but the rope creeps and the car falls behind | (trimmed away at each floor; only gross slip reaches 6 — Encoder mismatch) |
 | Floor sensor dead | The car-mounted vane sensor stops reporting | 6 — Encoder mismatch |
 | Terminal slowdown cams dead | The shaft cams stop reporting | (no fault on its own — it removes the last protection if the count is also wrong) |
+| Independent service | Attendant key switch in the car | (not a fault — landing calls bypassed, doors held until CLOSE) |
+| Firefighter Phase II | In-car firefighter key, after a Phase I recall | (not a fault — car calls only, constant-pressure doors) |
 | Light curtain | Door permanently obstructed | (not a fault — the door reopens) |
 | No load compensation | Drive ignores the pre-torque reference | (not a fault — the car rolls back at the start) |
 | Mains failure | Supply lost, then the battery changeover | (not a fault — the ARD runs the car to the nearest floor) |
@@ -519,7 +539,7 @@ indices in `PLC_PRG.st` (32 bits).
 godot --headless --path godot --script res://tests/sim_test.gd
 ```
 
-21 scenarios: car call and levelling, collective control, emergency stop +
+22 scenarios: car call and levelling, collective control, emergency stop +
 reset, overload start inhibit, fire evacuation (including a regression for the
 doors staying open), light curtain, travel timeout and recovery from a fault,
 brake feedback, overspeed, gong duration + alarm bell, ride quality (jerk and
@@ -597,9 +617,6 @@ To be straight about it, this is the part of the project that is not verified:
   the first build.
 - Single-car system — group control (a shared dispatcher across several
   elevators) is not modelled.
-- Still absent on the control side, and both are real equipment: firefighter
-  Phase II (operating the car from inside after the recall) and independent /
-  attendant service.
 - The door is a position model with a velocity envelope, not a force model:
   closing force and the reversal counter that pushes a repeatedly obstructed
   door into nudging are not represented.

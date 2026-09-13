@@ -42,6 +42,7 @@ func _initialize() -> void:
 	test_door_zone_interlock()
 	test_encoder_correction()
 	test_terminal_slowdown()
+	test_special_services()
 
 	print("\n=== RESULT: %s ===" % ("ALL TESTS PASSED" if failures == 0
 			else "%d FAILED" % failures))
@@ -999,3 +1000,92 @@ func test_terminal_slowdown() -> void:
 			"(%.0f mm/s against %.0f with the cams)" % [bare_top, with_cam])
 	check("and reaches the buffer, which is what the cams prevent",
 			plant.buffer_struck, "(buffer struck: %s)" % plant.buffer_struck)
+
+
+func test_special_services() -> void:
+	print("\n22) Independent service and firefighter Phase II")
+	reset(0)
+
+	# --- Independent (attendant) service ---------------------------------
+	# A key switch in the car takes it out of the landing-call system: it
+	# answers only what is pressed inside, and the doors stay open until
+	# somebody presses CLOSE. An attendant holding a floor while a bed is
+	# loaded is the whole reason it exists.
+	plant.sw_independent = true
+	step(0.3)
+	check("independent service is flagged", status(LiftIo.ST_INDEPENDENT))
+
+	press_for("hall_up_2")
+	press_for("car_4")
+	var at4 := step_until(func(): return cur_floor() == 4 and status(LiftIo.ST_DOOR_OPEN), 45.0)
+	check("it serves the car call", at4, "(floor=%d)" % cur_floor())
+	check("and drove past the landing call", plant.trip_count <= 1,
+			"(%d stops)" % plant.trip_count)
+	check("the landing call is still waiting",
+			LiftIo.get_bit(regs_out[LiftIo.OUT_LAMP_UP], 2))
+
+	# The dwell expires and the door still does not close on its own.
+	step(12.0)
+	check("the door stays open past the dwell", plant.door_pos > 0.95,
+			"(door=%.0f%%, dwell is %.0f s)" % [plant.door_pos * 100, LiftCfg.T_DOOR_DWELL])
+	press_for("door_close", 4.0)
+	check("CLOSE is what shuts it", plant.door_pos < 0.05,
+			"(door=%.0f%%)" % (plant.door_pos * 100))
+
+	plant.sw_independent = false
+	var served := step_until(func(): return cur_floor() == 2 and status(LiftIo.ST_DOOR_OPEN), 45.0)
+	check("the landing call is served once the key is turned back", served,
+			"(floor=%d)" % cur_floor())
+
+	# --- Firefighter Phase II --------------------------------------------
+	# Phase I recalls the car; the second key switch inside hands it over.
+	reset(4)
+	plant.sw_fire = true
+	var recalled := step_until(_cond_at_fire_floor, 45.0)
+	check("Phase I parked the car at the recall floor", recalled,
+			"(floor=%d)" % cur_floor())
+
+	plant.sw_fire_ph2 = true
+	step(0.5)
+	check("the in-car key hands over to Phase II",
+			state() == LiftIo.State.FIRE_PH2,
+			"(state=%s)" % LiftIo.STATE_TEXT[state()])
+
+	# Constant pressure: hold CLOSE for a moment, let go, and the door comes
+	# straight back — the firefighter has to keep a hand on it.
+	for i in range(60):
+		plant.hold("door_close", true)
+		step(DT)
+	plant.hold("door_close", false)
+	var part_closed := plant.door_pos
+	step(4.0)
+	check("letting go of CLOSE re-opens the door",
+			part_closed < 0.95 and plant.door_pos > 0.95,
+			"(fell to %.0f%%, back to %.0f%%)" % [part_closed * 100, plant.door_pos * 100])
+
+	# Holding it shuts the door and lets the car run.
+	for i in range(900):
+		plant.hold("door_close", true)
+		step(DT)
+		if plant.door_pos <= 0.005:
+			break
+	plant.hold("door_close", false)
+	check("holding CLOSE shuts it", plant.door_pos <= 0.005,
+			"(door=%.0f%%)" % (plant.door_pos * 100))
+
+	press_for("car_3")
+	var moved := step_until(func(): return cur_floor() == 3 and absf(plant.speed_mms) < 1.0, 45.0)
+	check("the firefighter can send the car to a floor", moved,
+			"(floor=%d)" % cur_floor())
+	step(3.0)
+	check("but the door does NOT open on arrival by itself",
+			plant.door_pos < 0.05, "(door=%.0f%%)" % (plant.door_pos * 100))
+
+	for i in range(900):
+		plant.hold("door_open", true)
+		step(DT)
+		if plant.door_pos > 0.995:
+			break
+	plant.hold("door_open", false)
+	check("holding OPEN is what opens it", plant.door_pos > 0.95,
+			"(door=%.0f%%)" % (plant.door_pos * 100))

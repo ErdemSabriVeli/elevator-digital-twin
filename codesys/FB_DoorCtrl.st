@@ -20,6 +20,7 @@ VAR_INPUT
     xCloseBtn     : BOOL;
     xOverload     : BOOL;
     xDoorZone     : BOOL;    // car is inside the unlocking zone
+    xConstPress   : BOOL;    // firefighter mode: the buttons must be HELD
     tDwell        : TIME := T#4S;
 END_VAR
 VAR_OUTPUT
@@ -81,7 +82,14 @@ CASE eState OF
     DS_OPENING:
         xOpenOut := TRUE;
         tonMove(IN := TRUE, PT := C_T_DOOR_MOVE_MAX);
-        IF xOpenLimit THEN
+        (* Under constant pressure the door only travels while the button is
+           held. Let go half way and it goes straight back - the firefighter
+           keeps a hand on it so the door can never be left open on a floor
+           they have not chosen to be on. EN 81-72. *)
+        IF xConstPress AND NOT xOpenBtn AND NOT xOpenLimit THEN
+            tonMove(IN := FALSE);
+            eState := DS_CLOSING;
+        ELSIF xOpenLimit THEN
             tonMove(IN := FALSE);
             eState := DS_OPEN;
         ELSIF tonMove.Q THEN
@@ -103,8 +111,14 @@ CASE eState OF
 
         xDwellDone := tonDwell.Q;
 
+        (* Under constant pressure nothing shuts the door but the button. *)
+        IF xConstPress THEN
+            IF xCloseBtn THEN
+                eState := DS_CLOSING;
+                tonDwell(IN := FALSE);
+            END_IF
         // The close button skips the dwell (if nothing is in the way)
-        IF xCloseBtn AND NOT xObstruction AND NOT xOverload AND NOT xReqOpen THEN
+        ELSIF xCloseBtn AND NOT xObstruction AND NOT xOverload AND NOT xReqOpen THEN
             eState := DS_CLOSING;
             tonDwell(IN := FALSE);
         ELSIF tonDwell.Q AND xReqClose THEN
@@ -121,9 +135,23 @@ CASE eState OF
         tonMove(IN := TRUE, PT := C_T_DOOR_MOVE_MAX);
         iRemainMs := 0;
 
+        (* Under constant pressure the door closes only while the button is
+           held, and NOTHING else reopens it - not the light curtain, not an
+           overload. A firefighter may have to close on smoke or debris, which
+           is exactly the case the curtain would otherwise veto. *)
+        IF xConstPress THEN
+            IF NOT xCloseBtn AND NOT xCloseLimit THEN
+                tonMove(IN := FALSE);
+                eState := DS_REOPEN;
+            ELSIF xCloseLimit THEN
+                tonMove(IN := FALSE);
+                tonNudge(IN := FALSE);
+                xNudge := FALSE;
+                eState := DS_CLOSED;
+            END_IF
         // Reasons to reopen (in nudge mode the light curtain is ignored,
         // but the open button and an overload always count)
-        IF xOpenBtn OR xReqOpen OR xOverload OR (xObstruction AND NOT xNudge) THEN
+        ELSIF xOpenBtn OR xReqOpen OR xOverload OR (xObstruction AND NOT xNudge) THEN
             tonMove(IN := FALSE);
             eState := DS_REOPEN;
         ELSIF xCloseLimit THEN
@@ -140,7 +168,11 @@ CASE eState OF
     // -----------------------------------------------------------------------
     DS_REOPEN:
         xOpenOut := TRUE;
-        IF xOpenLimit THEN
+        (* Under constant pressure a re-open is only the button being let go,
+           so pressing it again resumes closing from where it stopped. *)
+        IF xConstPress AND xCloseBtn THEN
+            eState := DS_CLOSING;
+        ELSIF xOpenLimit THEN
             eState := DS_OPEN;
             tonDwell(IN := FALSE);
         END_IF
