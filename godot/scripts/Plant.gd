@@ -24,7 +24,9 @@ var sw_drive_fault := false
 var sw_fire := false
 var sw_inspection := false
 var sw_obstruction := false       # light curtain permanently blocked
-var sw_rope_slip := false         # encoder drift simulation
+var sw_rope_slip := false         # rope creeps over the sheave: the encoder
+                                  # counts travel the car never makes
+var rope_slip_frac := 0.005      # fraction of the payout lost to the creep
 var sw_brake_stuck := false       # brake mechanically stuck
 var sw_overspeed := false         # mild drive runaway -> electrical trip
 var sw_severe_runaway := false    # runaway the controller cannot catch in time
@@ -32,6 +34,7 @@ var sw_car_jammed := false        # car jammed / ropes slipping completely
 var sw_no_load_comp := false      # drive ignores the pre-torque reference
 var sw_mains_fail := false        # mains supply lost
 var sw_brake_creep := false       # worn brake: a held car sinks slowly
+var sw_vane_dead := false         # the car's floor-zone sensor has failed
 
 ## Safety gear: the wedges the governor pulls onto the guide rails once the car
 ## passes the mechanical trip speed. It is not a fault the panel can clear -
@@ -44,6 +47,7 @@ var _brake_t := 0.0
 var _torque_ramp := 0.0           # 0..1, how much pre-torque the drive has built
 var _ard_t := 0.0                 # time since the mains went
 var _a_loop := 0.0                # the speed loop's share of the acceleration
+var _slip_mm := 0.0               # payout the car never actually made
 
 # --- PLC commands (last received) -------------------------------------------
 var c_drive_enable := false
@@ -252,14 +256,22 @@ func step(dt: float) -> void:
 		speed_mms = maxf(speed_mms, 0.0)
 
 	# --- position integration ----------------------------------------------
-	var slip := 1.0
+	# pos_mm is rope PAYOUT — what the encoder on the motor shaft counts. Where
+	# the car actually is follows from it via car_pos_mm(), which subtracts the
+	# two things the encoder cannot see: rope stretch, and rope slip.
+	var d_mm := speed_mms * dt
 	if sw_car_jammed:
-		slip = 0.0                           # car does not advance -> travel timeout
-	elif sw_rope_slip and absf(speed_mms) > 10.0:
-		slip = 0.92                          # rope slip -> encoder drift
-	var d_mm := speed_mms * dt * slip
+		# The machine stalls against the obstruction: nothing turns, so nothing
+		# is counted either, and the controller sees the travel time run out.
+		d_mm = 0.0
 	pos_mm += d_mm
 	travel_distance_mm += absf(d_mm)
+
+	if sw_rope_slip:
+		# The sheave turns and the encoder counts, but the rope creeps over the
+		# grooves, so the car falls behind what the count says. That is a real
+		# divergence between the two, not a slower car.
+		_slip_mm += d_mm * rope_slip_frac
 
 	# --- mechanical limit (buffer) -----------------------------------------
 	var pos_min := -float(LiftCfg.OVERTRAVEL_MM) - 100.0
@@ -342,10 +354,14 @@ func build_registers(heartbeat: int) -> PackedInt32Array:
 	r[LiftIo.IN_CMD] = cmd
 
 	# --- floor (door zone) sensors -----------------------------------------
+	# One sensor on the car reads a plate at each landing, so when it fails it
+	# fails for every floor at once - the controller is left with nothing but
+	# the encoder, which is exactly the situation it must not trust.
 	var zone := 0
-	for f in range(LiftCfg.FLOOR_COUNT):
-		if absf(car_pos_mm() - f * LiftCfg.FLOOR_HEIGHT_MM) <= LiftCfg.DOOR_ZONE_MM:
-			zone = LiftIo.set_bit(zone, f, true)
+	if not sw_vane_dead:
+		for f in range(LiftCfg.FLOOR_COUNT):
+			if absf(car_pos_mm() - f * LiftCfg.FLOOR_HEIGHT_MM) <= LiftCfg.DOOR_ZONE_MM:
+				zone = LiftIo.set_bit(zone, f, true)
 	r[LiftIo.IN_FLOOR_ZONE] = zone
 
 	# --- limits and lock ---------------------------------------------------
@@ -417,7 +433,7 @@ func rope_stretch_mm() -> float:
 ## rope. Everything that senses the car itself (levelling vanes, door zone, the
 ## 3D model) has to use this instead.
 func car_pos_mm() -> float:
-	return pos_mm - rope_stretch_mm()
+	return pos_mm - _slip_mm - rope_stretch_mm()
 
 
 ## Is the car inside a landing's unlocking zone? Only there can the doors move.

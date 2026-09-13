@@ -40,6 +40,7 @@ func _initialize() -> void:
 	test_brake_only_at_rest()
 	test_full_load_bypass()
 	test_door_zone_interlock()
+	test_encoder_correction()
 
 	print("\n=== RESULT: %s ===" % ("ALL TESTS PASSED" if failures == 0
 			else "%d FAILED" % failures))
@@ -846,3 +847,65 @@ func test_door_zone_interlock() -> void:
 		q.step(DT)
 	check("and obeys the same command at a sill", q.door_pos > 0.95,
 			"(door=%.0f%%)" % (q.door_pos * 100))
+
+
+func test_encoder_correction() -> void:
+	print("\n20) Encoder drift is trimmed against the floor vanes")
+	reset(0)
+
+	# The encoder is on the motor and counts rope payout, so it drifts. The
+	# vanes in the shaft are the only absolute reference there is, and a real
+	# controller re-datums against them every time the car comes to rest level.
+	plant.sw_rope_slip = true          # the rope creeps a little over the sheave
+
+	var worst := 0.0
+	var diverge := 0.0
+	for f in [1, 3, 5, 2, 0]:
+		press_for("car_%d" % f)
+		var ok := step_until(func(): return cur_floor() == f and status(LiftIo.ST_DOOR_OPEN), 45.0)
+		if not ok:
+			check("reached floor %d despite the slip" % f, false,
+					"(floor=%d, fault=%s)" % [cur_floor(), LiftIo.FAULT_TEXT[fault()]])
+			return
+		# The car's real position is what matters, not the encoder's opinion.
+		worst = maxf(worst, absf(plant.floor_offset_mm()))
+		diverge = maxf(diverge, absf(plant.pos_mm - plant.car_pos_mm()))
+		step(3.0)
+
+	check("a slipping rope does not stop the lift working", fault() == LiftIo.Fault.NONE,
+			"(code=%d %s)" % [fault(), LiftIo.FAULT_TEXT[fault()]])
+	check("and the car still lands level at every floor",
+			worst <= LiftCfg.DOOR_ZONE_MM,
+			"(worst %.0f mm off the sill over five trips)" % worst)
+	# The creep is signed, so a round trip largely cancels it - but at the top
+	# of the run the count and the car are a long way apart, and the lift kept
+	# working only because the vanes re-datumed it at every stop.
+	check("the encoder and the car really did diverge", diverge > 50.0,
+			"(worst %.0f mm apart)" % diverge)
+
+	# Slip bad enough to lose half a floor in one trip is past trimming: the
+	# vane and the corrected position then disagree about which floor this is,
+	# and that has to be reported rather than quietly absorbed.
+	reset(0)
+	plant.sw_rope_slip = true
+	plant.rope_slip_frac = 0.15
+	press_for("car_5")
+	var caught := step_until(func(): return fault() == LiftIo.Fault.ENCODER, 60.0)
+	check("gross slip is reported instead of absorbed", caught,
+			"(code=%d %s, car %.0f mm behind the encoder)"
+					% [fault(), LiftIo.FAULT_TEXT[fault()],
+					plant.pos_mm - plant.car_pos_mm()])
+
+	# The other way the position can be wrong is that the sensor reading the
+	# vanes has failed. Then the count says "arrived" with nothing underneath to
+	# confirm it, and the only safe answer is to stop and say so — the doors are
+	# interlocked to the zone anyway, so they could not open there.
+	reset(0)
+	press_for("car_3")
+	step_until(func(): return plant.pos_mm > 1000.0, 15.0)
+	plant.sw_vane_dead = true
+	var noticed := step_until(func(): return fault() == LiftIo.Fault.ENCODER, 30.0)
+	check("a dead floor sensor is noticed on arrival", noticed,
+			"(code=%d %s)" % [fault(), LiftIo.FAULT_TEXT[fault()]])
+	check("and the doors stayed shut with no vane to confirm the floor",
+			plant.door_pos < 0.01, "(door=%.0f%%)" % (plant.door_pos * 100))

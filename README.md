@@ -186,11 +186,23 @@ The brake is modelled as a friction element: it pulls speed to zero and holds
 it there, and can never drive the car backwards. It responds to the command
 with a 150 ms delay.
 
-**Re-levelling.** The encoder is on the motor, so it measures rope payout — it
-cannot see the car hanging lower because the rope stretched under a load that
-walked in. That is why a real lift has levelling vanes on the car reading plates
-in the shaft, and why they are wired separately from the encoder. Here the ropes
-are modelled with their real elasticity (5 x 100 mm2 of metallic area, ~100 GPa
+**Position: the count and the car are not the same thing.** The encoder is on
+the motor, so it measures rope *payout*. Two things separate that from where the
+car actually is — the rope stretches under load, and it creeps over the sheave —
+and the encoder can see neither. So the controller re-datums against the vanes
+in the shaft every time the car comes to rest level at a floor. A creeping rope
+then shows up as a fault only once the drift is gross, which is what happens on
+a real installation.
+
+The check has two halves, because trimming hides the small case: a vane saying
+one floor while the count says another, and the car stopped where the count says
+a floor is with no plate underneath at all. The second covers both a count that
+has drifted past trimming and a failed sensor — and the controller cannot tell
+which, so it stops rather than guessing.
+
+**Re-levelling.** The same split is why the levelling vanes exist as separate
+sensors: the encoder cannot see the car hanging lower because the rope stretched
+under a load that walked in. Here the ropes are modelled with their real elasticity (5 x 100 mm2 of metallic area, ~100 GPa
 for stranded rope), which on this 16 m rise comes to a few millimetres — small,
 and said plainly rather than exaggerated; it is tower blocks where this becomes
 centimetres.
@@ -270,7 +282,9 @@ car shows `E` and the doors stay open until the mains return.
 
 **Link supervision:** Godot sends a heartbeat every scan. If it stops changing
 for 2 s the PLC treats the safety chain as open and refuses to move the car, full-load bypass, and the unlocking-zone door
-interlock (checked against the plant directly, not only through the controller).
+interlock (checked against the plant directly, not only through the controller),
+and encoder drift being trimmed against the vanes — including that gross slip
+and a dead sensor are still reported rather than absorbed.
 
 ---
 
@@ -408,7 +422,8 @@ detect it from its own inputs.
 | Drive runaway | Actual speed climbs to 120 % of the reference | 10 — Overspeed |
 | Severe runaway | 145 % — past the governor's mechanical trip before the controller can react | 11 — Safety gear set |
 | Car jammed | Drive runs but position does not advance | 3 — Travel timeout |
-| Rope slip | Encoder drifts from the true position | 6 — Encoder mismatch |
+| Rope slip | The sheave turns and the count rises, but the rope creeps and the car falls behind | (trimmed away at each floor; only gross slip reaches 6 — Encoder mismatch) |
+| Floor sensor dead | The car-mounted vane sensor stops reporting | 6 — Encoder mismatch |
 | Light curtain | Door permanently obstructed | (not a fault — the door reopens) |
 | No load compensation | Drive ignores the pre-torque reference | (not a fault — the car rolls back at the start) |
 | Mains failure | Supply lost, then the battery changeover | (not a fault — the ARD runs the car to the nearest floor) |
@@ -488,7 +503,7 @@ indices in `PLC_PRG.st` (32 bits).
 godot --headless --path godot --script res://tests/sim_test.gd
 ```
 
-19 scenarios: car call and levelling, collective control, emergency stop +
+20 scenarios: car call and levelling, collective control, emergency stop +
 reset, overload start inhibit, fire evacuation (including a regression for the
 doors staying open), light curtain, travel timeout and recovery from a fault,
 brake feedback, overspeed, gong duration + alarm bell, ride quality (jerk and
@@ -568,10 +583,8 @@ To be straight about it, this is the part of the project that is not verified:
   elevators) is not modelled.
 - Still absent on the control side, and all of it is real equipment:
   firefighter Phase II (operating the car from inside after the recall),
-  independent / attendant service, terminal slowdown switches as a stage
-  separate from the final limits, and correcting accumulated encoder drift
-  against the door-zone vane — the controller detects the mismatch as a fault
-  but never trims the position.
+  independent / attendant service, and terminal slowdown switches as a stage
+  separate from the final limits.
 - The door is a position model with a velocity envelope, not a force model:
   closing force and the reversal counter that pushes a repeatedly obstructed
   door into nudging are not represented.

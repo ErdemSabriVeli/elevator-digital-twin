@@ -841,6 +841,9 @@ class LiftCore extends RefCounted:
 	var _hb_acc := 0.0
 	var _hb := 0
 	var _zone_mism := false
+	var _t_no_vane := Ton.new()   # "arrived" with no vane under the car
+	var _pos_offset := 0          # encoder -> car position trim, set at each floor
+	var _pos_corr := 0            # the corrected position everything else uses
 	var _zone_floor := -1
 
 	func _init() -> void:
@@ -860,12 +863,40 @@ class LiftCore extends RefCounted:
 				_zone_mism, overspeed, brake_bad, inp.fault_reset)
 
 		# --- 2) position / floor tracking -------------------------------------
-		cur_floor = Motion.floor_from_pos(inp.pos_mm)
+		# The encoder counts rope payout. The vanes in the shaft are the only
+		# absolute reference the controller has, so every time the car comes to
+		# rest level at a floor the count is trimmed back to that floor's
+		# nominal height. Two things follow: a slipping rope only becomes a
+		# fault once the drift is gross, and the controller's idea of where the
+		# car is refers to the CAR rather than to the rope — which after a
+		# stretch are not the same place.
+		_pos_corr = inp.pos_mm + _pos_offset
+
 		_zone_floor = -1
 		for i in range(LiftCfg.TOP_FLOOR + 1):
 			if inp.floor_zone[i]:
 				_zone_floor = i
-		_zone_mism = _zone_floor >= 0 and _zone_floor != cur_floor
+
+		if (_zone_floor >= 0 and not inp.relevel_up and not inp.relevel_down
+				and absi(inp.act_speed_mms) <= LiftCfg.V_ZERO_MMS):
+			_pos_offset = _zone_floor * LiftCfg.FLOOR_HEIGHT_MM - inp.pos_mm
+			_pos_corr = _zone_floor * LiftCfg.FLOOR_HEIGHT_MM
+
+		cur_floor = Motion.floor_from_pos(_pos_corr)
+
+		# Two ways the position can be wrong, and trimming only hides the small
+		# one. Either a vane says one floor while the count says another, or the
+		# car is stopped where the count says a floor is and there is no plate
+		# underneath at all. The second covers both a count that has drifted
+		# past trimming and a sensor that has failed — and the controller cannot
+		# tell which, so it must not guess.
+		var no_vane: bool = (homed
+				and absi(inp.act_speed_mms) <= LiftCfg.V_ZERO_MMS
+				and _zone_floor < 0
+				and absi(_pos_corr - cur_floor * LiftCfg.FLOOR_HEIGHT_MM)
+						<= LiftCfg.DOOR_ZONE_MM)
+		_t_no_vane.update(no_vane, LiftCfg.T_BRAKE, dt)
+		_zone_mism = (_zone_floor >= 0 and _zone_floor != cur_floor) or _t_no_vane.q
 
 		# --- 3) call registration ---------------------------------------------
 		var clear_calls: bool = inp.fire_call or inp.inspection or safety.is_fault
@@ -1054,9 +1085,9 @@ class LiftCore extends RefCounted:
 					# uphill costs it everything. A car heavier than the
 					# counterweight sinks.
 					var net_kg := LiftCfg.CAR_EMPTY_KG + inp.load_kg - LiftCfg.CWT_KG
-					var f_below: int = maxi(0, inp.pos_mm / LiftCfg.FLOOR_HEIGHT_MM)
+					var f_below: int = maxi(0, _pos_corr / LiftCfg.FLOOR_HEIGHT_MM)
 					var f_above := f_below
-					if inp.pos_mm > f_below * LiftCfg.FLOOR_HEIGHT_MM:
+					if _pos_corr > f_below * LiftCfg.FLOOR_HEIGHT_MM:
 						f_above = mini(f_below + 1, LiftCfg.TOP_FLOOR)
 					if net_kg >= 0:
 						target_flr = f_below
@@ -1126,7 +1157,7 @@ class LiftCore extends RefCounted:
 		var move_ok: bool = safety.run_allow and homed \
 				and ((door.is_closed and inp.door_locked) or relevelling)
 		motion.scan(move_ok,
-				target_flr, inp.pos_mm, inp.top_limit, inp.bot_limit,
+				target_flr, _pos_corr, inp.top_limit, inp.bot_limit,
 				inp.inspection, inp.insp_up, inp.insp_down, inp.load_kg,
 				inp.act_speed_mms, state == LiftIo.State.RESCUE,
 				relevelling, inp.relevel_up, inp.relevel_down, dt)

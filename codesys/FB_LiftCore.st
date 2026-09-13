@@ -50,6 +50,10 @@ VAR
     xFireParked : BOOL;   // reached the recall floor (the fire mode latch)
     xRescueParked : BOOL; // the rescue run has reached a floor
     xBypassHall : BOOL;   // car full: landing calls are not this car's job
+    tonNoVane   : TON;    // stopped at a floor with no vane under the car
+    xNoVane     : BOOL;
+    diPosOffset : DINT;   // encoder -> car position trim, set at each floor
+    diPosCorr   : DINT;   // the corrected position everything else works from
     diNetKg     : DINT;
     iFloorBelow : INT;
     iFloorAbove : INT;
@@ -98,14 +102,41 @@ fbSafety(
 // ===========================================================================
 // 2) POSITION / FLOOR TRACKING
 // ===========================================================================
-iCurFloor := fbMotion.FloorFromPos(stIn.diPosMM);
+(* The encoder counts rope payout. The vanes in the shaft are the only absolute
+   reference the controller has, so every time the car comes to rest level at a
+   floor the count is trimmed back to that floor's nominal height. Two things
+   follow: a slipping rope only becomes a fault once the drift is gross, and
+   the controller's idea of where the car is refers to the CAR rather than to
+   the rope - which after a stretch are not the same place. *)
+diPosCorr := stIn.diPosMM + diPosOffset;
 
-// Floor sensor vs encoder consistency check (inside the door zone only)
 iZoneFloor := -1;
 FOR i := 0 TO C_TOP_FLOOR DO
     IF stIn.axFloorZone[i] THEN iZoneFloor := i; END_IF
 END_FOR
-xZoneMism := (iZoneFloor >= 0) AND (iZoneFloor <> iCurFloor);
+
+IF (iZoneFloor >= 0) AND NOT stIn.xRelevelUp AND NOT stIn.xRelevelDown
+   AND (ABS(stIn.iActSpeedMMS) <= C_V_ZERO_MMS) THEN
+    diPosOffset := INT_TO_DINT(iZoneFloor) * C_FLOOR_HEIGHT_MM - stIn.diPosMM;
+    diPosCorr   := INT_TO_DINT(iZoneFloor) * C_FLOOR_HEIGHT_MM;
+END_IF
+
+iCurFloor := fbMotion.FloorFromPos(diPosCorr);
+
+(* Two ways the position can be wrong, and trimming only hides the small one.
+   Either a vane says one floor while the count says another, or the car is
+   stopped where the count says a floor is and there is no plate underneath at
+   all - which covers both a count drifted past trimming and a failed sensor. *)
+(* Stopped, the count says this is a floor, and there is no plate underneath.
+   Either the count has drifted past trimming or the sensor reading the vanes
+   has failed - and the controller cannot tell which, so it must not guess. *)
+xNoVane := xHomed
+           AND (ABS(stIn.iActSpeedMMS) <= C_V_ZERO_MMS)
+           AND (iZoneFloor < 0)
+           AND (ABS(diPosCorr - INT_TO_DINT(iCurFloor) * C_FLOOR_HEIGHT_MM)
+                <= C_DOOR_ZONE_MM);
+tonNoVane(IN := xNoVane, PT := C_T_BRAKE);
+xZoneMism := ((iZoneFloor >= 0) AND (iZoneFloor <> iCurFloor)) OR tonNoVane.Q;
 
 // ===========================================================================
 // 3) CALL REGISTRATION
@@ -365,11 +396,11 @@ CASE eState OF
                everything. A car heavier than the counterweight sinks. *)
             diNetKg := INT_TO_DINT(C_CAR_EMPTY_KG) + INT_TO_DINT(stIn.iLoadKg)
                        - INT_TO_DINT(C_CWT_KG);
-            iFloorBelow := DINT_TO_INT(stIn.diPosMM / C_FLOOR_HEIGHT_MM);
+            iFloorBelow := DINT_TO_INT(diPosCorr / C_FLOOR_HEIGHT_MM);
             IF iFloorBelow < 0 THEN
                 iFloorBelow := 0;
             END_IF
-            IF stIn.diPosMM > INT_TO_DINT(iFloorBelow) * C_FLOOR_HEIGHT_MM THEN
+            IF diPosCorr > INT_TO_DINT(iFloorBelow) * C_FLOOR_HEIGHT_MM THEN
                 iFloorAbove := iFloorBelow + 1;
             ELSE
                 iFloorAbove := iFloorBelow;
@@ -484,7 +515,7 @@ fbMotion(
                     AND ( (fbDoor.xIsClosed AND stIn.xDoorLocked)
                           OR (eState = LS_RELEVEL) ),
     iTargetFloor := iTargetFlr,
-    diPosMM      := stIn.diPosMM,
+    diPosMM      := diPosCorr,
     xTopLimit    := stIn.xTopLimit,
     xBotLimit    := stIn.xBotLimit,
     xInspection  := stIn.xInspection,
